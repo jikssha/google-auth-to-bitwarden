@@ -2,7 +2,9 @@
 
 **Authenticator Pro** 是一款专为工程师设计的极简、安全、完全本地化的身份验证器迁移工具。它能将 Google Authenticator 的导出截图或 `otpauth-migration` 数据即刻转换为 Bitwarden 兼容的 JSON 格式。
 
-https://imphub.pepeth.qzz.io/file/1766052876772_chrome_DUxlM2OQ16.png
+<p align="center">
+  <img src="screenshot.png" width="800" alt="Authenticator Pro 预览">
+</p>
 
 ---
 
