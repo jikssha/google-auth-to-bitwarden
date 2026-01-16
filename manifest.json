@@ -1,0 +1,27 @@
+{
+  "name": "Authenticator Pro | 谷歌验证器转换工具",
+  "short_name": "Authenticator Pro",
+  "description": "将Google Authenticator导出的二维码转换为Bitwarden、1Password、LastPass、KeePass等格式",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0070f3",
+  "orientation": "portrait-primary",
+  "categories": ["utilities", "security"],
+  "lang": "zh-CN",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='96' fill='%230070f3'/><path d='M256 120c-75 0-136 61-136 136s61 136 136 136 136-61 136-136-61-136-136-136zm0 240c-57.4 0-104-46.6-104-104s46.6-104 104-104 104 46.6 104 104-46.6 104-104 104zm0-176c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm48 80h-40v40c0 4.4-3.6 8-8 8s-8-3.6-8-8v-40h-40c-4.4 0-8-3.6-8-8s3.6-8 8-8h40v-40c0-4.4 3.6-8 8-8s8 3.6 8 8v40h40c4.4 0 8 3.6 8 8s-3.6 8-8 8z' fill='white'/></svg>",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='96' fill='%230070f3'/><path d='M256 120c-75 0-136 61-136 136s61 136 136 136 136-61 136-136-61-136-136-136zm0 240c-57.4 0-104-46.6-104-104s46.6-104 104-104 104 46.6 104 104-46.6 104-104 104zm0-176c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm48 80h-40v40c0 4.4-3.6 8-8 8s-8-3.6-8-8v-40h-40c-4.4 0-8-3.6-8-8s3.6-8 8-8h40v-40c0-4.4 3.6-8 8-8s8 3.6 8 8v40h40c4.4 0 8 3.6 8 8s-3.6 8-8 8z' fill='white'/></svg>",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

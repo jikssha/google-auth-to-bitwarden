@@ -1,0 +1,2379 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="antialiased">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Authenticator Pro | 谷歌验证器转换工具</title>
+    <meta name="description" content="将Google Authenticator导出的二维码转换为Bitwarden、1Password、LastPass、KeePass等格式">
+    <meta name="theme-color" content="#0070f3">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Authenticator Pro">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='96' fill='%230070f3'/><path d='M256 120c-75 0-136 61-136 136s61 136 136 136 136-61 136-136-61-136-136-136zm0 240c-57.4 0-104-46.6-104-104s46.6-104 104-104 104 46.6 104 104-46.6 104-104 104zm0-176c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm48 80h-40v40c0 4.4-3.6 8-8 8s-8-3.6-8-8v-40h-40c-4.4 0-8-3.6-8-8s3.6-8 8-8h40v-40c0-4.4 3.6-8 8-8s8 3.6 8 8v40h40c4.4 0 8 3.6 8 8s-3.6 8-8 8z' fill='white'/></svg>">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/protobufjs@7.2.5/dist/protobuf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hi-base32@0.5.1/build/base32.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/otpauth/9.1.4/otpauth.umd.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        vercel: { blue: '#0070f3', error: '#ee0000' },
+                        gray: { 100: '#eaeaea', 800: '#333333', 900: '#111111', 950: '#000000' }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { font-feature-settings: "rlig" 1, "calt" 1; }
+        .bg-dots {
+            background-image: radial-gradient(#d4d4d4 1px, transparent 1px);
+            background-size: 24px 24px;
+        }
+        .dark .bg-dots { background-image: radial-gradient(#333 1px, transparent 1px); }
+        .glass { background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+        .dark .glass { background: rgba(0, 0, 0, 0.8); }
+        .transition-vercel { transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
+        @media (prefers-reduced-motion: reduce) {
+            .transition-vercel { transition: none; }
+        }
+        .skip-link { position: absolute; left: -9999px; z-index: 999; padding: 0.5rem 1rem; background: #000; color: #fff; }
+        .skip-link:focus { left: 50%; transform: translateX(-50%); top: 0.5rem; }
+
+        /* Loading spinner */
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .animate-spin { animation: spin 1s linear infinite; }
+        @media (prefers-reduced-motion: reduce) {
+            .animate-spin { animation: none; }
+        }
+        
+        /* Checkbox Style */
+        .custom-checkbox {
+            appearance: none;
+            background-color: transparent;
+            margin: 0;
+            font: inherit;
+            color: currentColor;
+            width: 1.15em;
+            height: 1.15em;
+            border: 1px solid currentColor;
+            border-radius: 0.25em;
+            display: grid;
+            place-content: center;
+            cursor: pointer;
+        }
+        .custom-checkbox::before {
+            content: "";
+            width: 0.65em;
+            height: 0.65em;
+            transform: scale(0);
+            transition: 120ms transform ease-in-out;
+            box-shadow: inset 1em 1em #0070f3;
+            transform-origin: center;
+            clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+        }
+        .custom-checkbox:checked::before { transform: scale(1); }
+        .dark .custom-checkbox { border-color: #555; }
+        .dark .custom-checkbox:checked { border-color: #fff; }
+        .dark .custom-checkbox::before { box-shadow: inset 1em 1em #fff; }
+
+        /* TOTP Code fade animation */
+        @keyframes code-update {
+            0% { opacity: 0.3; transform: scale(0.95); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+        .code-updated { animation: code-update 0.3s ease-out; }
+        @media (prefers-reduced-motion: reduce) {
+            .code-updated { animation: none; }
+        }
+
+        /* Swipe gesture styles */
+        .swipe-container {
+            position: relative;
+            overflow: hidden;
+            touch-action: pan-y pinch-zoom;
+        }
+        .swipe-content {
+            transition: transform 0.2s ease-out;
+        }
+        .swipe-action {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 80px;
+        }
+        .swipe-action-left {
+            right: 0;
+            background: #ee0000;
+        }
+        .swipe-action-right {
+            left: 0;
+            background: #0070f3;
+        }
+
+        /* Context menu styles */
+        .context-menu {
+            position: fixed;
+            z-index: 1000;
+            min-width: 160px;
+            background: white;
+            border: 1px solid #eaeaea;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+            padding: 4px 0;
+            opacity: 0;
+            transform: scale(0.95);
+            transition: opacity 0.1s, transform 0.1s;
+        }
+        .context-menu.show {
+            opacity: 1;
+            transform: scale(1);
+        }
+        .dark .context-menu {
+            background: #111;
+            border-color: #333;
+        }
+        .context-menu-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: background 0.1s;
+        }
+        .context-menu-item:hover {
+            background: #f5f5f5;
+        }
+        .dark .context-menu-item:hover {
+            background: #222;
+        }
+        .context-menu-divider {
+            height: 1px;
+            background: #eaeaea;
+            margin: 4px 0;
+        }
+        .dark .context-menu-divider {
+            background: #333;
+        }
+
+        /* Drag and drop styles */
+        .dragging {
+            opacity: 0.5;
+            cursor: grabbing !important;
+        }
+        .drag-over {
+            border-top: 2px solid #0070f3 !important;
+        }
+        .drag-handle {
+            cursor: grab;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        tr:hover .drag-handle,
+        .card:hover .drag-handle {
+            opacity: 0.5;
+        }
+        .drag-handle:hover {
+            opacity: 1 !important;
+        }
+
+        /* Card view styles */
+        .card-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 16px;
+        }
+        .card {
+            background: white;
+            border: 1px solid #eaeaea;
+            border-radius: 12px;
+            padding: 16px;
+            transition: all 0.2s;
+            position: relative;
+        }
+        .card:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            border-color: #d4d4d4;
+        }
+        .card.selected {
+            border-color: #0070f3;
+            background: rgba(0, 112, 243, 0.02);
+        }
+        .dark .card {
+            background: #111;
+            border-color: #333;
+        }
+        .dark .card:hover {
+            border-color: #555;
+        }
+        .dark .card.selected {
+            border-color: #0070f3;
+            background: rgba(0, 112, 243, 0.1);
+        }
+
+        /* Bottom action bar */
+        .bottom-action-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: white;
+            border-top: 1px solid #eaeaea;
+            padding: 12px 16px;
+            transform: translateY(100%);
+            transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            z-index: 40;
+        }
+        .bottom-action-bar.show {
+            transform: translateY(0);
+        }
+        .dark .bottom-action-bar {
+            background: #111;
+            border-color: #333;
+        }
+        @media (min-width: 768px) {
+            .bottom-action-bar {
+                display: none;
+            }
+        }
+
+        /* Mobile bottom navigation */
+        .mobile-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: white;
+            border-top: 1px solid #eaeaea;
+            display: none;
+            z-index: 30;
+            padding-bottom: env(safe-area-inset-bottom, 0);
+        }
+        .dark .mobile-nav {
+            background: #111;
+            border-color: #333;
+        }
+        @media (max-width: 767px) {
+            .mobile-nav {
+                display: flex;
+            }
+            body {
+                padding-bottom: calc(60px + env(safe-area-inset-bottom, 0));
+            }
+        }
+        .mobile-nav-item {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 8px 4px;
+            font-size: 10px;
+            color: #666;
+            transition: color 0.2s;
+        }
+        .mobile-nav-item.active {
+            color: #0070f3;
+        }
+        .mobile-nav-item svg {
+            width: 24px;
+            height: 24px;
+            margin-bottom: 2px;
+        }
+
+        /* Fullscreen TOTP modal */
+        .fullscreen-totp {
+            position: fixed;
+            inset: 0;
+            background: white;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s;
+        }
+        .fullscreen-totp.show {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .dark .fullscreen-totp {
+            background: black;
+        }
+        .fullscreen-totp-code {
+            font-size: 64px;
+            font-weight: bold;
+            font-family: 'JetBrains Mono', monospace;
+            letter-spacing: 0.1em;
+            color: #0070f3;
+        }
+        @media (max-width: 640px) {
+            .fullscreen-totp-code {
+                font-size: 48px;
+            }
+        }
+
+        /* Search highlight */
+        .search-highlight {
+            background: rgba(0, 112, 243, 0.2);
+            border-radius: 2px;
+            padding: 0 2px;
+            margin: 0 -2px;
+        }
+        .dark .search-highlight {
+            background: rgba(0, 112, 243, 0.3);
+        }
+
+        /* Progress bar */
+        .progress-bar {
+            height: 4px;
+            background: #eaeaea;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        .progress-bar-fill {
+            height: 100%;
+            background: #0070f3;
+            transition: width 0.3s ease-out;
+        }
+        .dark .progress-bar {
+            background: #333;
+        }
+    </style>
+</head>
+<body class="bg-white dark:bg-black text-black dark:text-white min-h-screen flex flex-col transition-colors duration-300 font-sans tracking-tight">
+
+    <a href="#main-content" class="skip-link">跳到主要内容</a>
+
+    <div class="fixed inset-0 pointer-events-none z-0 bg-dots opacity-40 [mask-image:radial-gradient(ellipse_at_center,black,transparent_80%)]"></div>
+
+    <header class="sticky top-0 z-50 border-b border-gray-100 dark:border-gray-800 glass">
+        <div class="container mx-auto px-6 max-w-5xl h-16 flex items-center justify-between">
+            <div class="flex items-center gap-4">
+                <div class="flex items-center gap-3">
+                    <svg class="w-6 h-6 text-black dark:text-white" width="24" height="24" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L22 19H2L12 2Z"></path></svg>
+                    <span class="font-bold text-lg tracking-tighter">Authenticator<span class="text-gray-400 font-normal ml-1">Pro</span></span>
+                </div>
+                <span class="text-gray-200 dark:text-gray-800 text-xl font-light">/</span>
+                <div class="flex items-center gap-2">
+                <img id="user-avatar" src="" class="w-5 h-5 rounded-full">
+                    <span id="user-name-nav" class="text-sm font-medium text-gray-500"></span>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-5">
+                 <button id="theme-toggle" class="text-gray-400 hover:text-black dark:hover:text-white transition-vercel p-2 -m-2 min-h-[44px] min-w-[44px] flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black dark:focus-visible:ring-white focus-visible:ring-offset-2 rounded-md" aria-label="切换深色/浅色模式">
+                    <svg id="icon-sun" class="w-5 h-5 hidden dark:block" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+                    <svg id="icon-moon" class="w-5 h-5 block dark:hidden" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
+                </button>
+                <a id="github-link" href="#" target="_blank" class="text-gray-400 hover:text-black dark:hover:text-white transition-vercel p-2 -m-2 min-h-[44px] min-w-[44px] flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black dark:focus-visible:ring-white focus-visible:ring-offset-2 rounded-md" aria-label="访问 GitHub 仓库">
+                    <svg class="w-5 h-5" width="20" height="20" fill="currentColor" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clip-rule="evenodd"></path></svg>
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <main id="main-content" class="flex-grow container mx-auto px-6 py-12 max-w-5xl relative z-10">
+
+        <div class="text-center mb-16">
+            <h1 class="text-4xl font-extrabold tracking-tighter mb-4 bg-clip-text text-transparent bg-gradient-to-b from-black to-gray-600 dark:from-white dark:to-gray-500 pb-2">
+               Authenticator 本地转换器 
+            </h1>
+            <p class="text-gray-500 text-lg max-w-xl mx-auto font-normal">
+                将 Google Authenticator 导出数据即刻转换为 Bitwarden 格式
+                <br>本地处理 · 零延迟 · 隐私安全
+            </p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+            
+            <div id="drop-zone" tabindex="0" role="button" aria-label="点击或拖拽上传二维码截图" class="group relative rounded-md border border-gray-100 dark:border-gray-800 bg-white dark:bg-black hover:border-black dark:hover:border-white transition-vercel cursor-pointer h-48 flex flex-col items-center justify-center overflow-hidden shadow-[0_0_0_1px_rgba(0,0,0,0.08)] hover:shadow-[0_0_0_1px_rgba(0,0,0,0.12),0_8px_30px_rgba(0,0,0,0.12)] dark:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black dark:focus-visible:ring-white focus-visible:ring-offset-2">
+                <input type="file" id="file-input" class="hidden" multiple accept="image/*" aria-hidden="true">
+                <!-- 正常状态 -->
+                <div id="drop-zone-normal" class="z-10 text-center space-y-2 group-hover:-translate-y-1 transition-vercel">
+                    <div class="mx-auto w-10 h-10 rounded-full bg-gray-50 dark:bg-gray-900 flex items-center justify-center border border-gray-100 dark:border-gray-800">
+                        <svg class="w-5 h-5 text-gray-500 group-hover:text-black dark:group-hover:text-white transition-vercel" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                    </div>
+                    <div>
+                        <p class="font-semibold text-sm">扫描截图</p>
+                        <p class="text-xs text-gray-400">支持拖拽多个图片或直接粘贴 (Ctrl+V)</p>
+                    </div>
+                </div>
+                <!-- 进度指示器 -->
+                <div id="drop-zone-progress" class="z-10 text-center space-y-4 hidden">
+                    <div class="mx-auto w-10 h-10 rounded-full bg-vercel-blue/10 flex items-center justify-center">
+                        <svg class="w-5 h-5 text-vercel-blue animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <p class="font-semibold text-sm">正在处理...</p>
+                        <p id="progress-text" class="text-xs text-gray-400">0 / 0</p>
+                    </div>
+                    <div class="w-48 mx-auto progress-bar">
+                        <div id="progress-bar-fill" class="progress-bar-fill" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="json-zone" tabindex="0" role="button" aria-label="点击上传 JSON 文件" class="group relative rounded-md border border-gray-100 dark:border-gray-800 bg-white dark:bg-black hover:border-vercel-blue transition-vercel cursor-pointer h-48 flex flex-col items-center justify-center overflow-hidden shadow-[0_0_0_1px_rgba(0,0,0,0.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vercel-blue focus-visible:ring-offset-2">
+                <input type="file" id="json-input" class="hidden" accept=".json" aria-hidden="true">
+                <div class="z-10 text-center space-y-2 group-hover:-translate-y-1 transition-vercel">
+                    <div class="mx-auto w-10 h-10 rounded-full bg-gray-50 dark:bg-gray-900 flex items-center justify-center border border-gray-100 dark:border-gray-800">
+                        <svg class="w-5 h-5 text-gray-500 group-hover:text-vercel-blue transition-vercel" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                    </div>
+                    <div>
+                        <p class="font-semibold text-sm">导入 JSON</p>
+                        <p class="text-xs text-gray-400">查看验证码或验证备份文件</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="data-panel" class="hidden">
+            <div class="flex flex-col md:flex-row justify-between items-center gap-4 mb-4">
+                <div class="flex items-center gap-4 w-full md:w-auto flex-grow">
+                    <div class="relative w-full md:w-64">
+                        <label for="search-input" class="sr-only">搜索账户</label>
+                        <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                        <input type="text" id="search-input" placeholder="搜索账户..." class="w-full h-9 pl-9 pr-3 rounded-md bg-white dark:bg-black border border-gray-100 dark:border-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white transition-vercel placeholder-gray-400">
+                    </div>
+                    <div class="relative hidden md:block">
+                        <label for="group-filter" class="sr-only">按发行方筛选</label>
+                        <select id="group-filter" class="h-9 pl-3 pr-8 rounded-md bg-white dark:bg-black border border-gray-100 dark:border-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white transition-vercel appearance-none cursor-pointer text-gray-600 dark:text-gray-400">
+                            <option value="">全部分组</option>
+                        </select>
+                        <svg class="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                    </div>
+                    <div class="text-xs text-gray-500 font-mono hidden md:block border-l border-gray-200 dark:border-gray-800 pl-4 h-5 leading-5">
+                        已选 <span id="selected-count" class="font-bold text-black dark:text-white">0</span> / 共 <span id="total-count">0</span>
+                    </div>
+                    <!-- 视图切换按钮 -->
+                    <div class="hidden md:flex items-center gap-1 border-l border-gray-200 dark:border-gray-800 pl-4 ml-2">
+                        <button id="view-table-btn" onclick="setViewMode('table')" class="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-vercel text-black dark:text-white" title="表格视图" aria-label="表格视图">
+                            <svg class="w-4 h-4" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path></svg>
+                        </button>
+                        <button id="view-card-btn" onclick="setViewMode('card')" class="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-vercel text-gray-400" title="卡片视图" aria-label="卡片视图">
+                            <svg class="w-4 h-4" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="flex gap-2 w-full md:w-auto">
+                    <button id="delete-selected-btn" class="h-9 px-4 text-xs font-medium rounded-md border border-gray-100 dark:border-gray-800 bg-white dark:bg-black hover:bg-red-50 dark:hover:bg-red-900/20 hover:border-red-200 dark:hover:border-red-800 hover:text-red-600 dark:hover:text-red-400 transition-vercel text-gray-500 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white dark:disabled:hover:bg-black disabled:hover:border-gray-100 dark:disabled:hover:border-gray-800 disabled:hover:text-gray-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 active:scale-95 disabled:active:scale-100 flex items-center gap-1.5">
+                        <svg class="w-3.5 h-3.5" width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        <span>删除选中</span>
+                    </button>
+                    <button id="clear-btn" class="h-9 px-4 text-xs font-medium rounded-md border border-gray-100 dark:border-gray-800 bg-white dark:bg-black hover:bg-red-50 dark:hover:bg-red-900/20 hover:border-red-200 dark:hover:border-red-800 hover:text-red-600 dark:hover:text-red-400 transition-vercel text-gray-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 active:scale-95">清空</button>
+                    <div class="relative" id="export-dropdown-container">
+                        <button id="export-btn" class="h-9 px-4 text-xs font-medium rounded-md bg-black dark:bg-white text-white dark:text-black hover:opacity-80 disabled:opacity-50 disabled:cursor-not-allowed transition-vercel shadow-sm flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black dark:focus-visible:ring-white focus-visible:ring-offset-2 active:scale-95 disabled:active:scale-100">
+                            <svg class="w-4 h-4" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                            <span>导出</span>
+                            <svg class="w-3 h-3 ml-1" width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                        </button>
+                        <div id="export-dropdown" class="absolute right-0 mt-2 w-48 bg-white dark:bg-black rounded-md border border-gray-100 dark:border-gray-800 shadow-xl z-50 hidden opacity-0 transition-vercel transform -translate-y-2">
+                            <div class="py-1">
+                                <button onclick="exportBitwarden()" class="w-full px-4 py-2.5 text-left text-xs hover:bg-gray-50 dark:hover:bg-gray-900 transition-vercel flex items-center gap-3">
+                                    <span class="w-5 h-5 rounded bg-blue-500 flex items-center justify-center text-white font-bold text-[10px]">B</span>
+                                    <span>Bitwarden JSON</span>
+                                </button>
+                                <button onclick="export1Password()" class="w-full px-4 py-2.5 text-left text-xs hover:bg-gray-50 dark:hover:bg-gray-900 transition-vercel flex items-center gap-3">
+                                    <span class="w-5 h-5 rounded bg-blue-600 flex items-center justify-center text-white font-bold text-[10px]">1P</span>
+                                    <span>1Password CSV</span>
+                                </button>
+                                <button onclick="exportLastPass()" class="w-full px-4 py-2.5 text-left text-xs hover:bg-gray-50 dark:hover:bg-gray-900 transition-vercel flex items-center gap-3">
+                                    <span class="w-5 h-5 rounded bg-red-500 flex items-center justify-center text-white font-bold text-[10px]">LP</span>
+                                    <span>LastPass CSV</span>
+                                </button>
+                                <button onclick="exportKeePass()" class="w-full px-4 py-2.5 text-left text-xs hover:bg-gray-50 dark:hover:bg-gray-900 transition-vercel flex items-center gap-3">
+                                    <span class="w-5 h-5 rounded bg-green-600 flex items-center justify-center text-white font-bold text-[10px]">KP</span>
+                                    <span>KeePass CSV</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 表格视图容器 -->
+            <div id="table-container" class="rounded-md border border-gray-100 dark:border-gray-800 overflow-hidden bg-white dark:bg-black shadow-[0_0_0_1px_rgba(0,0,0,0.04),0_2px_8px_rgba(0,0,0,0.04)] dark:shadow-none">
+                <table class="w-full text-left text-sm">
+                    <thead class="bg-gray-50 dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800">
+                        <tr>
+                            <th class="px-4 py-3 w-10">
+                                <input type="checkbox" id="select-all" class="custom-checkbox border-gray-300" aria-label="全选或取消全选所有账户">
+                            </th>
+                            <th class="px-4 py-3 font-medium text-xs text-gray-500 uppercase tracking-wider">
+                                <button onclick="toggleSort('issuer')" class="flex items-center gap-1 hover:text-black dark:hover:text-white transition-vercel group">
+                                    <span>发行方</span>
+                                    <svg id="sort-icon-issuer" class="w-3 h-3 opacity-0 group-hover:opacity-50 transition-vercel" width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"></path></svg>
+                                </button>
+                            </th>
+                            <th class="px-4 py-3 font-medium text-xs text-gray-500 uppercase tracking-wider">
+                                <button onclick="toggleSort('name')" class="flex items-center gap-1 hover:text-black dark:hover:text-white transition-vercel group">
+                                    <span>账户</span>
+                                    <svg id="sort-icon-name" class="w-3 h-3 opacity-0 group-hover:opacity-50 transition-vercel" width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"></path></svg>
+                                </button>
+                            </th>
+                            <th class="px-4 py-3 font-medium text-xs text-gray-500 uppercase tracking-wider w-32">验证码</th>
+                            <th class="px-4 py-3 font-medium text-xs text-gray-500 uppercase tracking-wider text-right">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="accounts-tbody" class="divide-y divide-gray-100 dark:divide-gray-800"></tbody>
+                </table>
+                <div id="empty-search" class="hidden py-12 text-center">
+                    <svg class="w-12 h-12 mx-auto mb-4 text-gray-300 dark:text-gray-600" width="48" height="48" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    <p class="text-gray-400 text-sm">没有找到匹配的账户</p>
+                    <p class="text-gray-300 text-xs mt-1">尝试使用不同的关键词搜索</p>
+                </div>
+            </div>
+
+            <!-- 卡片视图容器 -->
+            <div id="card-container" class="hidden">
+                <div id="card-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    <!-- 卡片由 JavaScript 动态生成 -->
+                </div>
+                <div id="empty-search-card" class="hidden py-12 text-center">
+                    <svg class="w-12 h-12 mx-auto mb-4 text-gray-300 dark:text-gray-600" width="48" height="48" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    <p class="text-gray-400 text-sm">没有找到匹配的账户</p>
+                    <p class="text-gray-300 text-xs mt-1">尝试使用不同的关键词搜索</p>
+                </div>
+            </div>
+
+            <!-- 空状态引导 -->
+            <div id="empty-state" class="hidden py-16 text-center">
+                <div class="w-24 h-24 mx-auto mb-6 rounded-full bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 flex items-center justify-center">
+                    <svg class="w-12 h-12 text-blue-500" width="48" height="48" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+                    </svg>
+                </div>
+                <h3 class="text-lg font-semibold text-black dark:text-white mb-2">开始导入您的验证器账户</h3>
+                <p class="text-sm text-gray-500 max-w-md mx-auto mb-6">
+                    扫描 Google Authenticator 导出的二维码，或上传已有的 JSON 备份文件
+                </p>
+                <div class="flex flex-col sm:flex-row gap-3 justify-center">
+                    <button onclick="document.getElementById('scan-zone').scrollIntoView({behavior:'smooth'})" class="inline-flex items-center justify-center gap-2 h-10 px-5 rounded-md bg-black dark:bg-white text-white dark:text-black text-sm font-medium hover:opacity-80 transition-vercel">
+                        <svg class="w-4 h-4" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h2M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"></path></svg>
+                        扫描二维码
+                    </button>
+                    <button onclick="document.getElementById('json-zone').click()" class="inline-flex items-center justify-center gap-2 h-10 px-5 rounded-md border border-gray-200 dark:border-gray-700 text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-900 transition-vercel">
+                        <svg class="w-4 h-4" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+                        导入 JSON
+                    </button>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <footer class="border-t border-gray-100 dark:border-gray-800 py-8 bg-gray-50/50 dark:bg-gray-900/30">
+        <div class="container mx-auto px-6 max-w-5xl">
+            <!-- 主要内容区 -->
+            <div class="flex flex-col md:flex-row justify-between items-center gap-6 mb-6">
+                <!-- 左侧：品牌信息 -->
+                <div class="flex items-center gap-3">
+                    <svg class="w-5 h-5 text-black dark:text-white" width="20" height="20" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L22 19H2L12 2Z"></path></svg>
+                    <span class="font-bold text-sm tracking-tight">Authenticator<span class="text-gray-400 font-normal ml-0.5">Pro</span></span>
+                </div>
+
+                <!-- 中间：安全状态 -->
+                <div class="flex items-center gap-6 text-xs text-gray-400">
+                    <span class="flex items-center gap-1.5">
+                        <span class="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>
+                        本地加密
+                    </span>
+                    <span class="flex items-center gap-1.5">
+                        <span class="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>
+                        零上传
+                    </span>
+                    <span class="flex items-center gap-1.5">
+                        <span class="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>
+                        隐私优先
+                    </span>
+                </div>
+
+                <!-- 右侧：GitHub 链接 -->
+                <a id="github-link-footer" href="#" target="_blank" class="text-gray-400 hover:text-black dark:hover:text-white transition-vercel p-2 -m-2 min-h-[44px] min-w-[44px] flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black dark:focus-visible:ring-white focus-visible:ring-offset-2 rounded-md" aria-label="访问 GitHub 仓库">
+                    <svg class="w-5 h-5" width="20" height="20" fill="currentColor" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clip-rule="evenodd"></path></svg>
+                </a>
+            </div>
+
+            <!-- 分隔线 -->
+            <div class="border-t border-gray-100 dark:border-gray-800 pt-6">
+                <div class="flex flex-col md:flex-row justify-between items-center gap-4">
+                    <!-- 左侧：Copyright -->
+                    <p class="text-xs text-gray-400">
+                        © 2026 Authenticator Pro. All rights reserved.
+                    </p>
+
+                    <!-- 中间：开发者信息 -->
+                    <p class="text-xs text-gray-500">
+                        由 <a id="footer-link" href="#" target="_blank" class="text-black dark:text-white font-medium hover:text-vercel-blue dark:hover:text-vercel-blue underline decoration-gray-300 dark:decoration-gray-600 underline-offset-2 transition-vercel"></a> 开发
+                    </p>
+
+                    <!-- 右侧：版本号 -->
+                    <p class="text-xs text-gray-400 font-mono">
+                        v<span id="app-version">1.2.1</span>
+                    </p>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <div id="toast" class="fixed bottom-6 right-6 z-50 transform translate-y-20 opacity-0 transition-all duration-300 motion-reduce:transition-none" role="alert" aria-live="polite">
+        <div id="toast-body" class="bg-black dark:bg-white text-white dark:text-black px-4 py-3 rounded-md shadow-xl flex items-center gap-3 border border-transparent dark:border-gray-200">
+            <p id="toast-msg" class="text-sm font-medium pr-2"></p>
+        </div>
+    </div>
+
+    <div id="qr-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-white/50 dark:bg-black/50 backdrop-blur-sm hidden opacity-0 transition-vercel" role="dialog" aria-modal="true" aria-labelledby="qr-modal-title">
+        <div class="bg-white dark:bg-black rounded-lg border border-gray-100 dark:border-gray-800 p-6 max-w-sm w-full shadow-2xl transform scale-95 transition-vercel">
+            <h3 id="qr-modal-title" class="text-base font-bold mb-1"></h3>
+            <p id="qr-modal-subtitle" class="text-xs text-gray-400 mb-6 font-mono truncate"></p>
+            <div class="flex justify-center bg-white p-2 rounded border border-gray-100 mb-6">
+                <canvas id="qr-canvas" aria-label="账户二维码"></canvas>
+            </div>
+            <button id="close-modal" class="w-full h-10 bg-gray-50 dark:bg-gray-900 text-xs font-medium rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 transition-vercel focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black dark:focus-visible:ring-white focus-visible:ring-offset-2 active:scale-[0.98]">关闭窗口</button>
+        </div>
+    </div>
+
+    <!-- 自定义确认对话框 -->
+    <div id="confirm-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-white/50 dark:bg-black/50 backdrop-blur-sm hidden opacity-0 transition-vercel" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+        <div class="bg-white dark:bg-black rounded-lg border border-gray-100 dark:border-gray-800 p-6 max-w-sm w-full mx-4 shadow-2xl transform scale-95 transition-vercel">
+            <div class="flex items-center gap-3 mb-4">
+                <div class="w-10 h-10 rounded-full bg-red-50 dark:bg-red-900/20 flex items-center justify-center shrink-0">
+                    <svg class="w-5 h-5 text-red-500" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                </div>
+                <div>
+                    <h3 id="confirm-title" class="text-base font-bold">确认操作</h3>
+                    <p id="confirm-message" class="text-sm text-gray-500 mt-0.5"></p>
+                </div>
+            </div>
+            <div class="flex gap-3 mt-6">
+                <button id="confirm-cancel" class="flex-1 h-10 text-sm font-medium rounded-md border border-gray-100 dark:border-gray-800 bg-white dark:bg-black hover:bg-gray-50 dark:hover:bg-gray-900 transition-vercel focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black dark:focus-visible:ring-white focus-visible:ring-offset-2 active:scale-[0.98]">取消</button>
+                <button id="confirm-ok" class="flex-1 h-10 text-sm font-medium rounded-md bg-red-500 text-white hover:bg-red-600 transition-vercel focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 active:scale-[0.98]">确认</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 编辑账户对话框 -->
+    <div id="edit-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-white/50 dark:bg-black/50 backdrop-blur-sm hidden opacity-0 transition-vercel" role="dialog" aria-modal="true" aria-labelledby="edit-title">
+        <div class="bg-white dark:bg-black rounded-lg border border-gray-100 dark:border-gray-800 p-6 max-w-sm w-full mx-4 shadow-2xl transform scale-95 transition-vercel">
+            <div class="flex items-center gap-3 mb-6">
+                <div class="w-10 h-10 rounded-full bg-vercel-blue/10 flex items-center justify-center shrink-0">
+                    <svg class="w-5 h-5 text-vercel-blue" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                </div>
+                <div>
+                    <h3 id="edit-title" class="text-base font-bold">编辑账户</h3>
+                    <p class="text-xs text-gray-400">修改账户的发行方和名称</p>
+                </div>
+            </div>
+            <input type="hidden" id="edit-secret">
+            <div class="space-y-4">
+                <div>
+                    <label for="edit-issuer" class="block text-xs font-medium text-gray-500 mb-1.5">发行方</label>
+                    <input type="text" id="edit-issuer" class="w-full h-10 px-3 rounded-md bg-white dark:bg-black border border-gray-200 dark:border-gray-700 text-sm focus:outline-none focus:ring-2 focus:ring-vercel-blue transition-vercel" placeholder="如: Google, GitHub...">
+                </div>
+                <div>
+                    <label for="edit-name" class="block text-xs font-medium text-gray-500 mb-1.5">账户名称</label>
+                    <input type="text" id="edit-name" class="w-full h-10 px-3 rounded-md bg-white dark:bg-black border border-gray-200 dark:border-gray-700 text-sm focus:outline-none focus:ring-2 focus:ring-vercel-blue transition-vercel" placeholder="如: user@example.com">
+                </div>
+            </div>
+            <div class="flex gap-3 mt-6">
+                <button id="edit-cancel" class="flex-1 h-10 text-sm font-medium rounded-md border border-gray-100 dark:border-gray-800 bg-white dark:bg-black hover:bg-gray-50 dark:hover:bg-gray-900 transition-vercel focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black dark:focus-visible:ring-white focus-visible:ring-offset-2 active:scale-[0.98]">取消</button>
+                <button id="edit-save" class="flex-1 h-10 text-sm font-medium rounded-md bg-vercel-blue text-white hover:bg-blue-600 transition-vercel focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vercel-blue focus-visible:ring-offset-2 active:scale-[0.98]">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 全屏验证码显示 -->
+    <div id="fullscreen-totp" class="fullscreen-totp" onclick="closeFullscreenTotp()">
+        <button class="absolute top-4 right-4 p-2 text-gray-400 hover:text-black dark:hover:text-white transition-vercel" aria-label="关闭">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+        </button>
+        <div id="fullscreen-issuer-icon" class="w-16 h-16 rounded-2xl bg-gray-100 dark:bg-gray-900 flex items-center justify-center mb-4"></div>
+        <p id="fullscreen-issuer" class="text-lg font-bold mb-1"></p>
+        <p id="fullscreen-name" class="text-sm text-gray-500 mb-8 font-mono"></p>
+        <div id="fullscreen-code" class="fullscreen-totp-code mb-4"></div>
+        <div class="flex items-center gap-3">
+            <div class="w-32 h-1 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden">
+                <div id="fullscreen-progress" class="h-full bg-vercel-blue transition-all duration-1000"></div>
+            </div>
+            <span id="fullscreen-countdown" class="text-sm text-gray-500 font-mono w-8"></span>
+        </div>
+        <button onclick="event.stopPropagation(); copyFullscreenCode()" class="mt-8 px-6 py-3 bg-black dark:bg-white text-white dark:text-black rounded-lg font-medium text-sm hover:opacity-80 transition-vercel flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+            复制验证码
+        </button>
+    </div>
+
+    <!-- 右键上下文菜单 -->
+    <div id="context-menu" class="context-menu hidden">
+        <div class="context-menu-item" onclick="contextMenuCopyCode()">
+            <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+            <span>复制验证码</span>
+        </div>
+        <div class="context-menu-item" onclick="contextMenuCopySecret()">
+            <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path></svg>
+            <span>复制密钥</span>
+        </div>
+        <div class="context-menu-divider"></div>
+        <div class="context-menu-item" onclick="contextMenuEdit()">
+            <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+            <span>编辑</span>
+        </div>
+        <div class="context-menu-item" onclick="contextMenuShowQr()">
+            <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4h2v-4zM6 6h2v2H6V6zm0 8h2v2H6v-2zm8-8h2v2h-2V6zm-8 4h2v2H6v-2zm4-4h2v2h-2V6z"></path></svg>
+            <span>生成二维码</span>
+        </div>
+        <div class="context-menu-divider"></div>
+        <div class="context-menu-item text-red-500" onclick="contextMenuDelete()">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+            <span>删除</span>
+        </div>
+    </div>
+
+    <!-- 移动端底部导航 -->
+    <nav class="mobile-nav" aria-label="移动端导航">
+        <button class="mobile-nav-item active" onclick="scrollToSection('upload')" aria-label="上传">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+            <span>上传</span>
+        </button>
+        <button class="mobile-nav-item" onclick="scrollToSection('accounts')" aria-label="账户">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+            <span>账户</span>
+        </button>
+        <button class="mobile-nav-item" onclick="toggleViewMode()" aria-label="视图">
+            <svg id="mobile-view-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
+            <span>视图</span>
+        </button>
+        <button class="mobile-nav-item" onclick="document.getElementById('export-btn').click()" aria-label="导出">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+            <span>导出</span>
+        </button>
+    </nav>
+
+    <!-- 批量操作底部栏 -->
+    <div id="batch-action-bar" class="bottom-action-bar">
+        <div class="flex items-center justify-between gap-4">
+            <span class="text-sm text-gray-600 dark:text-gray-400">已选择 <span id="batch-count" class="font-bold text-black dark:text-white">0</span> 项</span>
+            <div class="flex gap-2">
+                <button onclick="deleteSelected()" class="px-4 py-2 text-sm font-medium text-red-500 bg-red-50 dark:bg-red-900/20 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 transition-vercel">
+                    删除
+                </button>
+                <button onclick="document.getElementById('export-btn').click()" class="px-4 py-2 text-sm font-medium text-white bg-black dark:bg-white dark:text-black rounded-lg hover:opacity-80 transition-vercel">
+                    导出
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 🔧 个人信息配置
+        // ==========================================
+        const CONFIG = {
+            name: "Daemon",
+            githubUrl: "https://github.com/jikssha",
+            avatarUrl: "https://imphub.pepeth.qzz.io/file/pepe/1763451873884_c601705a-b277-4aef-a0bf-753686adf563.png",
+            version: "1.2.1"
+        };
+
+        // ==========================================
+        // 🚀 核心逻辑
+        // ==========================================
+        const protoDefinition = { nested: { MigrationPayload: { fields: { otpParameters: { rule: "repeated", type: "OtpParameters", id: 1 }, version: { type: "int32", id: 2 }, batchSize: { type: "int32", id: 3 }, batchIndex: { type: "int32", id: 4 }, batchId: { type: "int32", id: 5 } } }, OtpParameters: { fields: { secret: { type: "bytes", id: 1 }, name: { type: "string", id: 2 }, issuer: { type: "string", id: 3 }, algorithm: { type: "Algorithm", id: 4 }, digits: { type: "int32", id: 5 }, type: { type: "OtpType", id: 6 }, counter: { type: "int64", id: 7 } } }, Algorithm: { values: { ALGORITHM_UNSPECIFIED: 0, ALGORITHM_SHA1: 1, ALGORITHM_SHA256: 2, ALGORITHM_SHA512: 3, ALGORITHM_MD5: 4 } }, OtpType: { values: { OTP_TYPE_UNSPECIFIED: 0, OTP_TYPE_HOTP: 1, OTP_TYPE_TOTP: 2 } } } };
+        let accounts = [], root = null, searchTerm = "";
+        let sortField = null, sortOrder = 'asc'; // 排序状态
+        let filterGroup = ''; // 分组筛选
+        let viewMode = 'table'; // 视图模式: table | card
+        let contextMenuTarget = null; // 右键菜单目标
+
+        // SimpleIcons 发行方图标映射 (使用 SimpleIcons CDN)
+        const ISSUER_ICONS = {
+            // 社交/通讯
+            'google': { icon: 'google', color: '#4285F4' },
+            'github': { icon: 'github', color: '#181717' },
+            'gitlab': { icon: 'gitlab', color: '#FC6D26' },
+            'discord': { icon: 'discord', color: '#5865F2' },
+            'slack': { icon: 'slack', color: '#4A154B' },
+            'twitter': { icon: 'twitter', color: '#1DA1F2' },
+            'x': { icon: 'x', color: '#000000' },
+            'facebook': { icon: 'facebook', color: '#1877F2' },
+            'instagram': { icon: 'instagram', color: '#E4405F' },
+            'linkedin': { icon: 'linkedin', color: '#0A66C2' },
+            'reddit': { icon: 'reddit', color: '#FF4500' },
+            'telegram': { icon: 'telegram', color: '#26A5E4' },
+            'whatsapp': { icon: 'whatsapp', color: '#25D366' },
+            'signal': { icon: 'signal', color: '#3A76F0' },
+            'tiktok': { icon: 'tiktok', color: '#000000' },
+            'snapchat': { icon: 'snapchat', color: '#FFFC00' },
+            'twitch': { icon: 'twitch', color: '#9146FF' },
+            'youtube': { icon: 'youtube', color: '#FF0000' },
+
+            // 云服务/开发
+            'aws': { icon: 'amazonaws', color: '#232F3E' },
+            'amazon': { icon: 'amazon', color: '#FF9900' },
+            'azure': { icon: 'microsoftazure', color: '#0078D4' },
+            'microsoft': { icon: 'microsoft', color: '#5E5E5E' },
+            'apple': { icon: 'apple', color: '#000000' },
+            'cloudflare': { icon: 'cloudflare', color: '#F38020' },
+            'digitalocean': { icon: 'digitalocean', color: '#0080FF' },
+            'heroku': { icon: 'heroku', color: '#430098' },
+            'vercel': { icon: 'vercel', color: '#000000' },
+            'netlify': { icon: 'netlify', color: '#00C7B7' },
+            'docker': { icon: 'docker', color: '#2496ED' },
+            'npm': { icon: 'npm', color: '#CB3837' },
+            'pypi': { icon: 'pypi', color: '#3775A9' },
+            'bitbucket': { icon: 'bitbucket', color: '#0052CC' },
+            'jira': { icon: 'jira', color: '#0052CC' },
+            'atlassian': { icon: 'atlassian', color: '#0052CC' },
+            'notion': { icon: 'notion', color: '#000000' },
+            'figma': { icon: 'figma', color: '#F24E1E' },
+            'trello': { icon: 'trello', color: '#0052CC' },
+
+            // 密码管理/安全
+            'bitwarden': { icon: 'bitwarden', color: '#175DDC' },
+            '1password': { icon: '1password', color: '#0094F5' },
+            'lastpass': { icon: 'lastpass', color: '#D32D27' },
+            'authy': { icon: 'twilio', color: '#F22F46' },
+            'okta': { icon: 'okta', color: '#007DC1' },
+            'auth0': { icon: 'auth0', color: '#EB5424' },
+
+            // 支付/金融
+            'paypal': { icon: 'paypal', color: '#00457C' },
+            'stripe': { icon: 'stripe', color: '#008CDD' },
+            'coinbase': { icon: 'coinbase', color: '#0052FF' },
+            'binance': { icon: 'binance', color: '#F0B90B' },
+            'kraken': { icon: 'kraken', color: '#5741D9' },
+
+            // 游戏
+            'steam': { icon: 'steam', color: '#000000' },
+            'epicgames': { icon: 'epicgames', color: '#313131' },
+            'epic games': { icon: 'epicgames', color: '#313131' },
+            'ea': { icon: 'ea', color: '#000000' },
+            'ubisoft': { icon: 'ubisoft', color: '#000000' },
+            'blizzard': { icon: 'blizzard', color: '#00AEFF' },
+            'riot': { icon: 'riotgames', color: '#D32936' },
+            'nintendo': { icon: 'nintendo', color: '#E60012' },
+            'playstation': { icon: 'playstation', color: '#003791' },
+            'xbox': { icon: 'xbox', color: '#107C10' },
+
+            // 电商
+            'shopify': { icon: 'shopify', color: '#7AB55C' },
+            'ebay': { icon: 'ebay', color: '#E53238' },
+            'aliexpress': { icon: 'aliexpress', color: '#FF4747' },
+            'alibaba': { icon: 'alibaba', color: '#FF6A00' },
+
+            // 其他常用
+            'dropbox': { icon: 'dropbox', color: '#0061FF' },
+            'box': { icon: 'box', color: '#0061D5' },
+            'evernote': { icon: 'evernote', color: '#00A82D' },
+            'wordpress': { icon: 'wordpress', color: '#21759B' },
+            'proton': { icon: 'proton', color: '#6D4AFF' },
+            'protonmail': { icon: 'protonmail', color: '#8B89CC' },
+            'mailchimp': { icon: 'mailchimp', color: '#FFE01B' },
+            'zoom': { icon: 'zoom', color: '#2D8CFF' },
+            'salesforce': { icon: 'salesforce', color: '#00A1E0' },
+            'hubspot': { icon: 'hubspot', color: '#FF7A59' },
+            'zendesk': { icon: 'zendesk', color: '#03363D' },
+            'intercom': { icon: 'intercom', color: '#6AFDEF' },
+            'sentry': { icon: 'sentry', color: '#362D59' },
+            'datadog': { icon: 'datadog', color: '#632CA6' },
+            'newrelic': { icon: 'newrelic', color: '#008C99' },
+            'pagerduty': { icon: 'pagerduty', color: '#06AC38' },
+            'grafana': { icon: 'grafana', color: '#F46800' },
+            'jenkins': { icon: 'jenkins', color: '#D24939' },
+            'circleci': { icon: 'circleci', color: '#343434' },
+            'travis': { icon: 'travisci', color: '#3EAAAF' }
+        };
+
+        // 获取发行方图标
+        function getIssuerIcon(issuer) {
+            if (!issuer) return null;
+            const key = issuer.toLowerCase().trim();
+            // 精确匹配
+            if (ISSUER_ICONS[key]) return ISSUER_ICONS[key];
+            // 模糊匹配
+            for (const [k, v] of Object.entries(ISSUER_ICONS)) {
+                if (key.includes(k) || k.includes(key)) return v;
+            }
+            return null;
+        }
+
+        // 生成图标 HTML
+        function renderIssuerIcon(issuer, size = 'md') {
+            const iconData = getIssuerIcon(issuer);
+            const sizeClass = size === 'lg' ? 'w-10 h-10' : size === 'sm' ? 'w-5 h-5' : 'w-6 h-6';
+            const textSize = size === 'lg' ? 'text-lg' : size === 'sm' ? 'text-xs' : 'text-sm';
+
+            if (iconData) {
+                return `<div class="shrink-0 ${sizeClass} rounded-lg flex items-center justify-center" style="background-color: ${iconData.color}15">
+                    <img src="https://cdn.simpleicons.org/${iconData.icon}/${iconData.color.replace('#', '')}"
+                         alt="${escape(issuer)}"
+                         class="${size === 'lg' ? 'w-6 h-6' : size === 'sm' ? 'w-3 h-3' : 'w-4 h-4'}"
+                         onerror="this.parentElement.innerHTML='<span class=\\'${textSize} font-bold\\' style=\\'color:${iconData.color}\\'>${escape(issuer.charAt(0).toUpperCase())}</span>'"
+                         loading="lazy">
+                </div>`;
+            }
+
+            // 默认显示首字母
+            const initial = (issuer || 'U').charAt(0).toUpperCase();
+            const hue = Array.from(issuer || 'U').reduce((acc, c) => acc + c.charCodeAt(0), 0) % 360;
+            return `<div class="shrink-0 ${sizeClass} rounded-lg flex items-center justify-center" style="background-color: hsl(${hue}, 60%, 95%)">
+                <span class="${textSize} font-bold" style="color: hsl(${hue}, 60%, 45%)">${initial}</span>
+            </div>`;
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            initTheme();
+            applyConfig();
+            try { root = protobuf.Root.fromJSON(protoDefinition); } catch (e) { console.error(e); }
+            setupEvents();
+            setInterval(updateTotpDisplay, 1000);
+        });
+
+        function applyConfig() {
+            document.getElementById('user-avatar').src = CONFIG.avatarUrl;
+            document.getElementById('user-name-nav').textContent = CONFIG.name;
+            document.getElementById('footer-link').textContent = CONFIG.name;
+            document.getElementById('footer-link').href = CONFIG.githubUrl;
+            document.getElementById('github-link').href = CONFIG.githubUrl;
+            document.getElementById('github-link-footer').href = CONFIG.githubUrl;
+            document.getElementById('app-version').textContent = CONFIG.version;
+        }
+
+        function initTheme() {
+            if (localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                document.documentElement.classList.add('dark');
+            }
+            document.getElementById('theme-toggle').onclick = () => {
+                document.documentElement.classList.toggle('dark');
+                localStorage.setItem('theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+            };
+        }
+
+        function setupEvents() {
+            const dropZone = document.getElementById('drop-zone');
+            const fileInput = document.getElementById('file-input');
+            dropZone.onclick = () => fileInput.click();
+            dropZone.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); } };
+            fileInput.onchange = (e) => processFiles(e.target.files);
+
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => dropZone.addEventListener(evt, (e) => { e.preventDefault(); e.stopPropagation(); }));
+            dropZone.addEventListener('dragover', () => dropZone.classList.add('border-black', 'dark:border-white'));
+            dropZone.addEventListener('dragleave', () => dropZone.classList.remove('border-black', 'dark:border-white'));
+            dropZone.addEventListener('drop', (e) => {
+                dropZone.classList.remove('border-black', 'dark:border-white');
+                processFiles(e.dataTransfer.files);
+            });
+
+            document.addEventListener('paste', (e) => {
+                const items = e.clipboardData.items;
+                const files = [];
+                for(let i=0; i<items.length; i++) if(items[i].type.indexOf('image')!==-1) files.push(items[i].getAsFile());
+                if(files.length) processFiles(files);
+            });
+
+            const jsonZone = document.getElementById('json-zone');
+            const jsonInput = document.getElementById('json-input');
+            jsonZone.onclick = () => jsonInput.click();
+            jsonZone.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); jsonInput.click(); } };
+            jsonInput.onchange = (e) => processJson(e.target.files[0]);
+
+            document.getElementById('search-input').addEventListener('input', (e) => { searchTerm = e.target.value.toLowerCase(); render(); });
+            document.getElementById('group-filter').addEventListener('change', (e) => { filterGroup = e.target.value; render(); });
+            document.getElementById('clear-btn').onclick = () => {
+                showConfirmDialog('清空列表', '确定要清空所有已导入的账户吗？此操作无法撤销。', () => {
+                    accounts = [];
+                    render();
+                    showToast('列表已清空', 'success');
+                });
+            };
+            document.getElementById('export-btn').onclick = toggleExportDropdown;
+
+            // 导出下拉菜单控制
+            function toggleExportDropdown(e) {
+                e.stopPropagation();
+                const dropdown = document.getElementById('export-dropdown');
+                const isHidden = dropdown.classList.contains('hidden');
+                if (isHidden) {
+                    dropdown.classList.remove('hidden');
+                    setTimeout(() => {
+                        dropdown.classList.add('opacity-100');
+                        dropdown.classList.remove('-translate-y-2');
+                    }, 10);
+                } else {
+                    closeExportDropdown();
+                }
+            }
+
+            function closeExportDropdown() {
+                const dropdown = document.getElementById('export-dropdown');
+                dropdown.classList.remove('opacity-100');
+                dropdown.classList.add('-translate-y-2');
+                setTimeout(() => dropdown.classList.add('hidden'), 150);
+            }
+
+            // 点击其他地方关闭下拉菜单
+            document.addEventListener('click', (e) => {
+                const container = document.getElementById('export-dropdown-container');
+                if (container && !container.contains(e.target)) {
+                    closeExportDropdown();
+                }
+            });
+
+            // 删除选中按钮
+            document.getElementById('delete-selected-btn').onclick = () => {
+                const selectedCount = accounts.filter(a => a.selected).length;
+                if (selectedCount === 0) return;
+                showConfirmDialog('删除选中账户', `确定要删除选中的 ${selectedCount} 个账户吗？此操作无法撤销。`, () => {
+                    accounts = accounts.filter(a => !a.selected);
+                    render();
+                    showToast(`已删除 ${selectedCount} 个账户`, 'success');
+                });
+            };
+
+            // Checkbox handling
+            document.getElementById('select-all').onclick = (e) => {
+                const checked = e.target.checked;
+                accounts.forEach(a => a.selected = checked);
+                render();
+            };
+
+            const modal = document.getElementById('qr-modal');
+            const closeModalBtn = document.getElementById('close-modal');
+
+            closeModalBtn.onclick = closeModal;
+
+            // Close modal on Escape key
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && !modal.classList.contains('hidden')) {
+                    closeModal();
+                }
+            });
+
+            // Close modal on backdrop click
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) closeModal();
+            });
+
+            function closeModal() {
+                modal.classList.remove('opacity-100');
+                setTimeout(() => modal.classList.add('hidden'), 200);
+            }
+        }
+
+        async function processFiles(files) {
+            const imgs = Array.from(files).filter(f => f.type.startsWith('image/'));
+            if(!imgs.length) return;
+
+            const total = imgs.length;
+            const normalZone = document.getElementById('drop-zone-normal');
+            const progressZone = document.getElementById('drop-zone-progress');
+            const progressText = document.getElementById('progress-text');
+            const progressBarFill = document.getElementById('progress-bar-fill');
+
+            // 显示进度指示器
+            normalZone.classList.add('hidden');
+            progressZone.classList.remove('hidden');
+            progressText.textContent = `0 / ${total}`;
+            progressBarFill.style.width = '0%';
+
+            let count = 0;
+            let failedFiles = [];
+            let successFiles = [];
+            let processed = 0;
+
+            for(const f of imgs) {
+                try {
+                    const fr = new FileReader();
+                    const img = await new Promise(r => { fr.onload=e=>{ const i=new Image(); i.onload=()=>r(i); i.src=e.target.result; }; fr.readAsDataURL(f); });
+                    const code = await scanImageWithRetry(img);
+                    if(code?.data.startsWith('otpauth-migration://')) {
+                        const newAccs = decode(code.data);
+                        let fileCount = 0;
+                        newAccs.forEach(a => {
+                            if(!accounts.find(x=>x.secret===a.secret)) {
+                                a.selected = true;
+                                accounts.push(a);
+                                count++;
+                                fileCount++;
+                            }
+                        });
+                        successFiles.push({ name: f.name, count: fileCount });
+                    } else {
+                        failedFiles.push(f.name);
+                    }
+                } catch(e) {
+                    console.error(e);
+                    failedFiles.push(f.name + ' (异常)');
+                }
+                // 更新进度
+                processed++;
+                progressText.textContent = `${processed} / ${total}`;
+                progressBarFill.style.width = `${(processed / total) * 100}%`;
+            }
+
+            // 恢复正常状态
+            progressZone.classList.add('hidden');
+            normalZone.classList.remove('hidden');
+
+            render();
+
+            // 显示详细结果
+            if (count > 0 || failedFiles.length > 0) {
+                let msg = '';
+                if (count > 0) {
+                    msg = `✓ 成功导入 ${count} 个账户`;
+                }
+                if (failedFiles.length > 0) {
+                    const failedNames = failedFiles.map(n => truncateFileName(n)).join(', ');
+                    msg += (msg ? '\n' : '') + `✗ 失败: ${failedNames}`;
+                    showToastDetailed(msg, failedFiles, successFiles);
+                } else {
+                    showToast(msg, 'success');
+                }
+            } else {
+                showToast('未识别到有效二维码', 'error');
+            }
+        }
+
+        function truncateFileName(name, maxLen = 20) {
+            if (name.length <= maxLen) return name;
+            const ext = name.lastIndexOf('.') > 0 ? name.slice(name.lastIndexOf('.')) : '';
+            return name.slice(0, maxLen - ext.length - 3) + '...' + ext;
+        }
+
+        function showToastDetailed(msg, failedFiles, successFiles) {
+            const t = document.getElementById('toast');
+            const body = document.getElementById('toast-body');
+
+            // 构建详细内容
+            let html = `<div class="space-y-2">`;
+
+            if (successFiles.length > 0) {
+                html += `<p class="text-sm font-medium text-emerald-400">✓ 成功识别 ${successFiles.length} 张图片</p>`;
+            }
+
+            if (failedFiles.length > 0) {
+                html += `<div class="text-sm">
+                    <p class="font-medium text-red-400 mb-1">✗ 失败 ${failedFiles.length} 张:</p>
+                    <ul class="text-xs text-gray-300 space-y-0.5 max-h-24 overflow-y-auto">`;
+                failedFiles.forEach(name => {
+                    html += `<li class="font-mono">• ${escape(name)}</li>`;
+                });
+                html += `</ul></div>`;
+            }
+
+            html += `</div>`;
+
+            body.innerHTML = html;
+            t.classList.remove('translate-y-20', 'opacity-0');
+
+            // 失败时显示更长时间
+            setTimeout(() => {
+                t.classList.add('translate-y-20', 'opacity-0');
+                // 恢复原始结构
+                setTimeout(() => {
+                    body.innerHTML = '<p id="toast-msg" class="text-sm font-medium pr-2"></p>';
+                }, 300);
+            }, failedFiles.length > 0 ? 6000 : 3000);
+        }
+
+        function processJson(file) {
+            if(!file) return;
+            const r = new FileReader();
+            r.onload = (e) => {
+                try {
+                    const d = JSON.parse(e.target.result);
+                    let c = 0;
+                    if(d.items) d.items.forEach(i => {
+                        if(i.login?.totp) {
+                            let issuer="Unknown", name=i.name;
+                            if(i.name.includes(':')) { const p=i.name.split(':'); issuer=p[0].trim(); name=p.slice(1).join(':').trim(); }
+                            if(!accounts.find(x=>x.secret===i.login.totp)) {
+                                accounts.push({ secret:i.login.totp, name, issuer, type:'TOTP', algorithm:'SHA1', digits:6, selected: true });
+                                c++;
+                            }
+                        }
+                    });
+                    render();
+                    showToast(`成功导入 ${c} 个账户`, 'success');
+                } catch(e) { showToast('JSON 格式无效', 'error'); }
+            };
+            r.readAsText(file);
+        }
+
+        // --- Dual-Engine QR Scanning (jsQR + ZXing via html5-qrcode) ---
+        async function scanImageWithRetry(img) {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+            // Helper functions
+            function tryJsQR(imageData, w, h) {
+                return jsQR(imageData.data || imageData, w, h, { inversionAttempts: 'attemptBoth' });
+            }
+
+            function toGrayscale(data) {
+                const gray = new Uint8Array(data.length / 4);
+                for (let i = 0; i < data.length; i += 4) {
+                    gray[i >> 2] = (data[i] * 299 + data[i+1] * 587 + data[i+2] * 114) / 1000;
+                }
+                return gray;
+            }
+
+            function applyThreshold(gray, threshold) {
+                const result = new Uint8ClampedArray(gray.length * 4);
+                for (let i = 0; i < gray.length; i++) {
+                    const val = gray[i] > threshold ? 255 : 0;
+                    const idx = i * 4;
+                    result[idx] = val; result[idx+1] = val; result[idx+2] = val; result[idx+3] = 255;
+                }
+                return result;
+            }
+
+            function enhanceContrast(data, factor) {
+                const result = new Uint8ClampedArray(data.length);
+                for (let i = 0; i < data.length; i += 4) {
+                    result[i] = Math.min(255, Math.max(0, ((data[i] - 128) * factor) + 128));
+                    result[i+1] = Math.min(255, Math.max(0, ((data[i+1] - 128) * factor) + 128));
+                    result[i+2] = Math.min(255, Math.max(0, ((data[i+2] - 128) * factor) + 128));
+                    result[i+3] = 255;
+                }
+                return result;
+            }
+
+            function sharpen(imageData, w, h) {
+                const data = imageData.data || imageData;
+                const result = new Uint8ClampedArray(data.length);
+                const kernel = [0, -1, 0, -1, 5, -1, 0, -1, 0];
+                for (let y = 1; y < h - 1; y++) {
+                    for (let x = 1; x < w - 1; x++) {
+                        for (let c = 0; c < 3; c++) {
+                            let sum = 0;
+                            for (let ky = -1; ky <= 1; ky++) {
+                                for (let kx = -1; kx <= 1; kx++) {
+                                    const idx = ((y + ky) * w + (x + kx)) * 4 + c;
+                                    sum += data[idx] * kernel[(ky + 1) * 3 + (kx + 1)];
+                                }
+                            }
+                            result[(y * w + x) * 4 + c] = Math.min(255, Math.max(0, sum));
+                        }
+                        result[(y * w + x) * 4 + 3] = 255;
+                    }
+                }
+                return result;
+            }
+
+            function otsuThreshold(gray) {
+                const histogram = new Array(256).fill(0);
+                for (let i = 0; i < gray.length; i++) histogram[gray[i]]++;
+                let total = gray.length, sum = 0;
+                for (let i = 0; i < 256; i++) sum += i * histogram[i];
+                let sumB = 0, wB = 0, maxVariance = 0, threshold = 128;
+                for (let t = 0; t < 256; t++) {
+                    wB += histogram[t];
+                    if (wB === 0) continue;
+                    let wF = total - wB;
+                    if (wF === 0) break;
+                    sumB += t * histogram[t];
+                    let mB = sumB / wB, mF = (sum - sumB) / wF;
+                    let variance = wB * wF * (mB - mF) * (mB - mF);
+                    if (variance > maxVariance) { maxVariance = variance; threshold = t; }
+                }
+                return threshold;
+            }
+
+            function resizeImage(img, scale) {
+                const w = Math.floor(img.width * scale);
+                const h = Math.floor(img.height * scale);
+                canvas.width = w; canvas.height = h;
+                ctx.drawImage(img, 0, 0, w, h);
+                return { data: ctx.getImageData(0, 0, w, h), w, h };
+            }
+
+            function cropImage(img, scale, offsetX = 0.5, offsetY = 0.5) {
+                const cropW = Math.floor(img.width * scale);
+                const cropH = Math.floor(img.height * scale);
+                const cropX = Math.floor((img.width - cropW) * offsetX);
+                const cropY = Math.floor((img.height - cropH) * offsetY);
+                canvas.width = cropW; canvas.height = cropH;
+                ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+                return { data: ctx.getImageData(0, 0, cropW, cropH), w: cropW, h: cropH };
+            }
+
+            // Convert canvas to blob for html5-qrcode
+            function canvasToBlob(canvas) {
+                return new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+            }
+
+            // Try ZXing via html5-qrcode (more powerful engine)
+            async function tryZXing(imageSource) {
+                try {
+                    if (typeof Html5Qrcode === 'undefined') return null;
+
+                    let file;
+                    if (imageSource instanceof HTMLCanvasElement) {
+                        const blob = await canvasToBlob(imageSource);
+                        file = new File([blob], 'scan.png', { type: 'image/png' });
+                    } else if (imageSource instanceof File) {
+                        file = imageSource;
+                    } else {
+                        return null;
+                    }
+
+                    const result = await Html5Qrcode.scanFile(file, false);
+                    return { data: result };
+                } catch (e) {
+                    return null;
+                }
+            }
+
+            const width = img.width;
+            const height = img.height;
+            let code;
+
+            // ========== ENGINE 1: jsQR with preprocessing ==========
+            canvas.width = width; canvas.height = height;
+            ctx.drawImage(img, 0, 0);
+            const originalData = ctx.getImageData(0, 0, width, height);
+
+            // 1.1 Original
+            code = tryJsQR(originalData, width, height);
+            if (code) return code;
+
+            // 1.2 Contrast enhanced
+            for (const factor of [1.5, 2.0, 2.5]) {
+                code = tryJsQR(enhanceContrast(originalData.data, factor), width, height);
+                if (code) return code;
+            }
+
+            // 1.3 Sharpened
+            code = tryJsQR(sharpen(originalData, width, height), width, height);
+            if (code) return code;
+
+            // 1.4 Grayscale + Otsu
+            const gray = toGrayscale(originalData.data);
+            code = tryJsQR(applyThreshold(gray, otsuThreshold(gray)), width, height);
+            if (code) return code;
+
+            // 1.5 Multiple thresholds
+            for (const t of [60, 80, 100, 120, 140, 160, 180, 200, 220]) {
+                code = tryJsQR(applyThreshold(gray, t), width, height);
+                if (code) return code;
+            }
+
+            // 1.6 Scaled versions
+            for (const scale of [0.5, 0.75, 1.5, 2.0]) {
+                const { data, w, h } = resizeImage(img, scale);
+                code = tryJsQR(data, w, h);
+                if (code) return code;
+                code = tryJsQR(enhanceContrast(data.data, 1.8), w, h);
+                if (code) return code;
+            }
+
+            // 1.7 Cropped versions
+            for (const scale of [0.9, 0.8, 0.7, 0.6]) {
+                for (const [ox, oy] of [[0.5, 0.5], [0.5, 0.4], [0.5, 0.6]]) {
+                    const { data, w, h } = cropImage(img, scale, ox, oy);
+                    code = tryJsQR(data, w, h);
+                    if (code) return code;
+                    const g = toGrayscale(data.data);
+                    code = tryJsQR(applyThreshold(g, otsuThreshold(g)), w, h);
+                    if (code) return code;
+                }
+            }
+
+            // ========== ENGINE 2: ZXing (html5-qrcode) - More powerful ==========
+            // Original image
+            canvas.width = width; canvas.height = height;
+            ctx.drawImage(img, 0, 0);
+            code = await tryZXing(canvas);
+            if (code) return code;
+
+            // Contrast enhanced versions
+            for (const factor of [1.5, 2.0, 3.0]) {
+                const enhanced = enhanceContrast(originalData.data, factor);
+                ctx.putImageData(new ImageData(enhanced, width, height), 0, 0);
+                code = await tryZXing(canvas);
+                if (code) return code;
+            }
+
+            // Scaled versions for ZXing
+            for (const scale of [0.6, 0.8, 1.2, 1.5]) {
+                const { w, h } = resizeImage(img, scale);
+                code = await tryZXing(canvas);
+                if (code) return code;
+            }
+
+            // Cropped + enhanced for ZXing
+            for (const scale of [0.9, 0.8, 0.7]) {
+                const { data, w, h } = cropImage(img, scale, 0.5, 0.5);
+                const enhanced = enhanceContrast(data.data, 2.5);
+                ctx.putImageData(new ImageData(enhanced, w, h), 0, 0);
+                code = await tryZXing(canvas);
+                if (code) return code;
+            }
+
+            // Sharpened for ZXing
+            canvas.width = width; canvas.height = height;
+            ctx.drawImage(img, 0, 0);
+            const sharpData = sharpen(originalData, width, height);
+            ctx.putImageData(new ImageData(sharpData, width, height), 0, 0);
+            code = await tryZXing(canvas);
+            if (code) return code;
+
+            // Binary threshold versions for ZXing
+            for (const t of [100, 128, 160]) {
+                const binary = applyThreshold(gray, t);
+                ctx.putImageData(new ImageData(binary, width, height), 0, 0);
+                code = await tryZXing(canvas);
+                if (code) return code;
+            }
+
+            return null;
+        }
+
+        function decode(uri) {
+            try {
+                const u = new URL(uri);
+                const buf = protobuf.util.newBuffer(protobuf.util.base64.length(u.searchParams.get('data')));
+                protobuf.util.base64.decode(u.searchParams.get('data'), buf, 0);
+                const msg = root.lookupType("MigrationPayload").decode(buf);
+                return msg.otpParameters.map(p => ({ secret: base32.encode(p.secret).replace(/=/g,''), name:p.name||'', issuer:p.issuer||'', type:'TOTP', algorithm:'SHA1', digits:6, selected: true }));
+            } catch(e) { return []; }
+        }
+
+        function toggleSelect(secret) {
+            const acc = accounts.find(a => a.secret === secret);
+            if(acc) {
+                acc.selected = !acc.selected;
+                render();
+            }
+        }
+
+        function render() {
+            const panel = document.getElementById('data-panel');
+            const tbody = document.getElementById('accounts-tbody');
+            const emptyState = document.getElementById('empty-state');
+
+            if(accounts.length===0) {
+                panel.classList.add('hidden');
+                if (emptyState) emptyState.classList.remove('hidden');
+                return;
+            }
+            panel.classList.remove('hidden');
+            if (emptyState) emptyState.classList.add('hidden');
+
+            // 更新分组下拉菜单
+            updateGroupFilter();
+
+            // 应用搜索和分组筛选
+            let filtered = accounts.filter(a => (a.name+a.issuer).toLowerCase().includes(searchTerm));
+            if (filterGroup) {
+                filtered = filtered.filter(a => (a.issuer || 'Unknown') === filterGroup);
+            }
+            filtered = sortAccounts(filtered);
+            
+            // Stats & Selection UI
+            const total = accounts.length;
+            const selected = accounts.filter(a => a.selected).length;
+            document.getElementById('total-count').textContent = total;
+            document.getElementById('selected-count').textContent = selected;
+            document.getElementById('select-all').checked = total > 0 && selected === total;
+            
+            // Update Export Button
+            const exportBtn = document.getElementById('export-btn');
+            const exportSpan = exportBtn.querySelectorAll('span')[0];
+            exportSpan.textContent = selected > 0 ? `导出 (${selected})` : '导出';
+            exportBtn.disabled = selected === 0;
+
+            // Update Delete Selected Button
+            const deleteBtn = document.getElementById('delete-selected-btn');
+            const deleteBtnSpan = deleteBtn.querySelector('span');
+            deleteBtnSpan.textContent = selected > 0 ? `删除选中 (${selected})` : '删除选中';
+            deleteBtn.disabled = selected === 0;
+
+            document.getElementById('empty-search').className = filtered.length===0 ? 'block py-12 text-center text-gray-400 text-sm italic' : 'hidden';
+
+            tbody.innerHTML = filtered.map((a) => `
+                <tr class="group hover:bg-gray-50 dark:hover:bg-gray-900 transition-vercel cursor-pointer border-l-2 border-transparent hover:border-vercel-blue" data-secret="${a.secret}" onclick="toggleSelect('${a.secret}')" oncontextmenu="showContextMenu(event, '${a.secret}')" draggable="true" ondragstart="handleDragStart(event, '${a.secret}')" ondragover="handleDragOver(event)" ondrop="handleDrop(event, '${a.secret}')">
+                    <td class="px-4 py-3 text-center" onclick="event.stopPropagation()">
+                        <input type="checkbox" class="custom-checkbox border-gray-300" ${a.selected ? 'checked' : ''} onchange="toggleSelect('${a.secret}')" aria-label="选择 ${escape(a.issuer)} 账户">
+                    </td>
+                    <td class="px-4 py-3">
+                        <div class="flex items-center gap-3">
+                            ${renderIssuerIcon(a.issuer)}
+                            <span class="font-semibold text-gray-900 dark:text-gray-100">${highlightSearch(escape(a.issuer||'Unknown'))}</span>
+                        </div>
+                    </td>
+                    <td class="px-4 py-3 text-gray-500 dark:text-gray-400 font-mono text-xs">${highlightSearch(escape(a.name))}</td>
+                    <td class="px-4 py-3" onclick="event.stopPropagation()"><div class="flex items-center gap-2"><button onclick="copyCode('${a.secret}')" class="group/code flex items-center gap-2 px-2 py-1 -mx-2 -my-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 transition-vercel focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vercel-blue" aria-label="复制验证码" title="点击复制"><span id="code-${a.secret}" class="font-mono text-vercel-blue font-bold tracking-wider">...</span><svg class="w-3.5 h-3.5 text-gray-300 group-hover/code:text-gray-500 dark:group-hover/code:text-gray-400 transition-vercel" width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg></button><div class="w-3 h-3 rounded-full border border-gray-100 dark:border-gray-800 relative overflow-hidden" aria-hidden="true"><div id="pie-${a.secret}" class="absolute inset-0 bg-gray-200 dark:bg-gray-700 origin-bottom" style="transform:scaleY(0)"></div></div></div></td>
+                    <td class="px-4 py-3 text-right" onclick="event.stopPropagation()"><div class="flex items-center justify-end gap-1"><button onclick="showFullscreenTotp('${a.secret}')" class="md:hidden text-gray-300 hover:text-vercel-blue transition-vercel p-2 min-h-[44px] min-w-[44px] inline-flex items-center justify-center" aria-label="全屏显示" title="全屏"><svg class="w-4 h-4" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"></path></svg></button><button onclick="showEditModal('${a.secret}')" class="text-gray-300 hover:text-vercel-blue transition-vercel p-2 min-h-[44px] min-w-[44px] inline-flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vercel-blue rounded-md" aria-label="编辑 ${escape(a.issuer)} 账户" title="编辑"><svg class="w-4 h-4" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg></button><button onclick="showQr('${a.secret}')" class="text-gray-300 hover:text-black dark:hover:text-white transition-vercel p-2 min-h-[44px] min-w-[44px] inline-flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black dark:focus-visible:ring-white rounded-md" aria-label="显示 ${escape(a.issuer)} 的二维码" title="二维码"><svg class="w-4 h-4" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4h2v-4zM6 6h2v2H6V6zm0 8h2v2H6v-2zm8-8h2v2h-2V6zm-8 4h2v2H6v-2zm4-4h2v2h-2V6z"></path></svg></button></div></td>
+                </tr>
+            `).join('');
+            updateTotpDisplay();
+            updateBatchActionBar();
+        }
+
+        // 搜索高亮
+        function highlightSearch(text) {
+            if (!searchTerm) return text;
+            const regex = new RegExp(`(${searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+            return text.replace(regex, '<mark class="search-highlight">$1</mark>');
+        }
+
+        // 更新批量操作栏
+        function updateBatchActionBar() {
+            const selected = accounts.filter(a => a.selected).length;
+            const bar = document.getElementById('batch-action-bar');
+            const count = document.getElementById('batch-count');
+            if (selected > 0) {
+                bar.classList.add('show');
+                count.textContent = selected;
+            } else {
+                bar.classList.remove('show');
+            }
+        }
+
+        // ==========================================
+        // 右键上下文菜单
+        // ==========================================
+        function showContextMenu(event, secret) {
+            event.preventDefault();
+            event.stopPropagation();
+            contextMenuTarget = secret;
+            const menu = document.getElementById('context-menu');
+            menu.classList.remove('hidden');
+
+            // 计算位置，避免超出屏幕
+            const x = Math.min(event.clientX, window.innerWidth - 180);
+            const y = Math.min(event.clientY, window.innerHeight - 200);
+            menu.style.left = x + 'px';
+            menu.style.top = y + 'px';
+        }
+
+        function hideContextMenu() {
+            document.getElementById('context-menu').classList.add('hidden');
+            contextMenuTarget = null;
+        }
+
+        function contextMenuCopyCode() {
+            if (contextMenuTarget) copyCode(contextMenuTarget);
+            hideContextMenu();
+        }
+
+        function contextMenuCopySecret() {
+            if (contextMenuTarget) {
+                const acc = accounts.find(a => a.secret === contextMenuTarget);
+                if (acc) {
+                    navigator.clipboard.writeText(acc.secret);
+                    showToast('密钥已复制', 'success');
+                }
+            }
+            hideContextMenu();
+        }
+
+        function contextMenuEdit() {
+            if (contextMenuTarget) showEditModal(contextMenuTarget);
+            hideContextMenu();
+        }
+
+        function contextMenuShowQr() {
+            if (contextMenuTarget) showQr(contextMenuTarget);
+            hideContextMenu();
+        }
+
+        function contextMenuDelete() {
+            if (contextMenuTarget) {
+                const acc = accounts.find(a => a.secret === contextMenuTarget);
+                if (acc && confirm(`确定删除 "${acc.issuer}: ${acc.name}" 吗？`)) {
+                    accounts = accounts.filter(a => a.secret !== contextMenuTarget);
+                    render();
+                    showToast('已删除账户', 'success');
+                }
+            }
+            hideContextMenu();
+        }
+
+        // 点击其他地方关闭菜单
+        document.addEventListener('click', hideContextMenu);
+
+        // ==========================================
+        // 拖拽排序
+        // ==========================================
+        let draggedSecret = null;
+
+        function handleDragStart(event, secret) {
+            draggedSecret = secret;
+            event.target.classList.add('dragging');
+            event.dataTransfer.effectAllowed = 'move';
+        }
+
+        function handleDragOver(event) {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'move';
+            const tr = event.target.closest('tr');
+            if (tr) {
+                document.querySelectorAll('tr.drag-over').forEach(el => el.classList.remove('drag-over'));
+                tr.classList.add('drag-over');
+            }
+        }
+
+        function handleDrop(event, targetSecret) {
+            event.preventDefault();
+            document.querySelectorAll('tr.dragging, tr.drag-over').forEach(el => {
+                el.classList.remove('dragging', 'drag-over');
+            });
+
+            if (!draggedSecret || draggedSecret === targetSecret) return;
+
+            const fromIndex = accounts.findIndex(a => a.secret === draggedSecret);
+            const toIndex = accounts.findIndex(a => a.secret === targetSecret);
+
+            if (fromIndex !== -1 && toIndex !== -1) {
+                const [removed] = accounts.splice(fromIndex, 1);
+                accounts.splice(toIndex, 0, removed);
+                render();
+            }
+            draggedSecret = null;
+        }
+
+        // ==========================================
+        // 滑动手势操作 (移动端)
+        // ==========================================
+        let swipeState = {
+            startX: 0,
+            startY: 0,
+            currentX: 0,
+            row: null,
+            secret: null,
+            swiping: false
+        };
+
+        function initSwipeGestures() {
+            const tbody = document.getElementById('accounts-tbody');
+            if (!tbody) return;
+
+            tbody.addEventListener('touchstart', handleTouchStart, { passive: true });
+            tbody.addEventListener('touchmove', handleTouchMove, { passive: false });
+            tbody.addEventListener('touchend', handleTouchEnd, { passive: true });
+        }
+
+        function handleTouchStart(e) {
+            const row = e.target.closest('tr');
+            if (!row) return;
+
+            const touch = e.touches[0];
+            swipeState.startX = touch.clientX;
+            swipeState.startY = touch.clientY;
+            swipeState.row = row;
+            swipeState.secret = row.getAttribute('data-secret');
+            swipeState.swiping = false;
+        }
+
+        function handleTouchMove(e) {
+            if (!swipeState.row) return;
+
+            const touch = e.touches[0];
+            const deltaX = touch.clientX - swipeState.startX;
+            const deltaY = touch.clientY - swipeState.startY;
+
+            // 判断是否是水平滑动
+            if (!swipeState.swiping && Math.abs(deltaX) > 10) {
+                if (Math.abs(deltaX) > Math.abs(deltaY)) {
+                    swipeState.swiping = true;
+                }
+            }
+
+            if (swipeState.swiping) {
+                e.preventDefault();
+                swipeState.currentX = deltaX;
+
+                // 限制滑动范围
+                const clampedX = Math.max(-100, Math.min(100, deltaX));
+                swipeState.row.style.transform = `translateX(${clampedX}px)`;
+                swipeState.row.style.transition = 'none';
+
+                // 显示背景动作提示
+                if (clampedX < -50) {
+                    swipeState.row.style.backgroundColor = 'rgba(239, 68, 68, 0.1)';
+                } else if (clampedX > 50) {
+                    swipeState.row.style.backgroundColor = 'rgba(59, 130, 246, 0.1)';
+                } else {
+                    swipeState.row.style.backgroundColor = '';
+                }
+            }
+        }
+
+        function handleTouchEnd(e) {
+            if (!swipeState.row || !swipeState.swiping) {
+                resetSwipeState();
+                return;
+            }
+
+            const deltaX = swipeState.currentX;
+            const secret = swipeState.secret;
+
+            // 重置行样式
+            swipeState.row.style.transform = '';
+            swipeState.row.style.transition = 'transform 0.2s ease-out, background-color 0.2s ease-out';
+            swipeState.row.style.backgroundColor = '';
+
+            // 左滑删除 (超过 80px)
+            if (deltaX < -80 && secret) {
+                const acc = accounts.find(a => a.secret === secret);
+                if (acc && confirm(`确定要删除 "${acc.issuer || acc.name}" 吗？`)) {
+                    accounts = accounts.filter(a => a.secret !== secret);
+                    render();
+                    showToast('已删除账户', 'success');
+                }
+            }
+            // 右滑生成二维码 (超过 80px)
+            else if (deltaX > 80 && secret) {
+                generateQR(secret);
+            }
+
+            resetSwipeState();
+        }
+
+        function resetSwipeState() {
+            if (swipeState.row) {
+                swipeState.row.style.transform = '';
+                swipeState.row.style.transition = '';
+                swipeState.row.style.backgroundColor = '';
+            }
+            swipeState = {
+                startX: 0,
+                startY: 0,
+                currentX: 0,
+                row: null,
+                secret: null,
+                swiping: false
+            };
+        }
+
+        // 页面加载时初始化滑动手势
+        if ('ontouchstart' in window) {
+            document.addEventListener('DOMContentLoaded', initSwipeGestures);
+        }
+
+        // ==========================================
+        // 全屏验证码显示
+        // ==========================================
+        let fullscreenSecret = null;
+        let fullscreenInterval = null;
+
+        function showFullscreenTotp(secret) {
+            const acc = accounts.find(a => a.secret === secret);
+            if (!acc) return;
+
+            fullscreenSecret = secret;
+            const modal = document.getElementById('fullscreen-totp');
+            document.getElementById('fullscreen-issuer-icon').innerHTML = renderIssuerIcon(acc.issuer, 'lg');
+            document.getElementById('fullscreen-issuer').textContent = acc.issuer || 'Unknown';
+            document.getElementById('fullscreen-name').textContent = acc.name;
+
+            modal.classList.add('show');
+            updateFullscreenTotp();
+            fullscreenInterval = setInterval(updateFullscreenTotp, 1000);
+        }
+
+        function updateFullscreenTotp() {
+            if (!fullscreenSecret) return;
+            const acc = accounts.find(a => a.secret === fullscreenSecret);
+            if (!acc) return;
+
+            try {
+                const t = new OTPAuth.TOTP({secret: OTPAuth.Secret.fromBase32(acc.secret)});
+                const code = t.generate();
+                const epoch = Math.floor(Date.now()/1000);
+                const rem = 30 - (epoch % 30);
+
+                const codeEl = document.getElementById('fullscreen-code');
+                const progressEl = document.getElementById('fullscreen-progress');
+                const countdownEl = document.getElementById('fullscreen-countdown');
+
+                const formattedCode = code.replace(/(\d{3})(\d{3})/, '$1 $2');
+                if (codeEl.textContent !== formattedCode) {
+                    codeEl.textContent = formattedCode;
+                    codeEl.classList.add('code-updated');
+                    setTimeout(() => codeEl.classList.remove('code-updated'), 300);
+                }
+
+                progressEl.style.width = (rem / 30 * 100) + '%';
+                progressEl.classList.toggle('bg-vercel-error', rem < 5);
+                progressEl.classList.toggle('bg-vercel-blue', rem >= 5);
+                countdownEl.textContent = rem + 's';
+            } catch(e) {}
+        }
+
+        function closeFullscreenTotp() {
+            document.getElementById('fullscreen-totp').classList.remove('show');
+            if (fullscreenInterval) {
+                clearInterval(fullscreenInterval);
+                fullscreenInterval = null;
+            }
+            fullscreenSecret = null;
+        }
+
+        function copyFullscreenCode() {
+            if (!fullscreenSecret) return;
+            const acc = accounts.find(a => a.secret === fullscreenSecret);
+            if (!acc) return;
+
+            try {
+                const t = new OTPAuth.TOTP({secret: OTPAuth.Secret.fromBase32(acc.secret)});
+                navigator.clipboard.writeText(t.generate());
+                showToast('验证码已复制', 'success');
+            } catch(e) {
+                showToast('复制失败', 'error');
+            }
+        }
+
+        // ==========================================
+        // 移动端底部导航
+        // ==========================================
+        function scrollToSection(section) {
+            const targets = {
+                'upload': document.getElementById('drop-zone'),
+                'accounts': document.getElementById('data-panel')
+            };
+            if (targets[section]) {
+                targets[section].scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+            // 更新激活状态
+            document.querySelectorAll('.mobile-nav-item').forEach(btn => {
+                btn.classList.toggle('active', btn.textContent.includes(section === 'upload' ? '上传' : '账户'));
+            });
+        }
+
+        // ==========================================
+        // 视图模式切换
+        // ==========================================
+        function toggleViewMode() {
+            viewMode = viewMode === 'table' ? 'card' : 'table';
+            const tableContainer = document.getElementById('table-container');
+            const cardContainer = document.getElementById('card-container');
+            const viewToggle = document.getElementById('view-toggle-icon');
+
+            if (viewMode === 'card') {
+                tableContainer.classList.add('hidden');
+                cardContainer.classList.remove('hidden');
+                if (viewToggle) viewToggle.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path>';
+                renderCardView();
+            } else {
+                tableContainer.classList.remove('hidden');
+                cardContainer.classList.add('hidden');
+                if (viewToggle) viewToggle.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path>';
+            }
+            showToast(viewMode === 'card' ? '已切换到卡片视图' : '已切换到表格视图', 'success');
+        }
+
+        function setViewMode(mode) {
+            if (viewMode === mode) return;
+            viewMode = mode;
+            const tableContainer = document.getElementById('table-container');
+            const cardContainer = document.getElementById('card-container');
+            const tableBtn = document.getElementById('view-table-btn');
+            const cardBtn = document.getElementById('view-card-btn');
+            const mobileViewIcon = document.getElementById('mobile-view-icon');
+
+            if (viewMode === 'card') {
+                tableContainer.classList.add('hidden');
+                cardContainer.classList.remove('hidden');
+                if (tableBtn) tableBtn.classList.replace('text-black', 'text-gray-400');
+                if (tableBtn) tableBtn.classList.replace('dark:text-white', 'text-gray-400');
+                if (cardBtn) cardBtn.classList.replace('text-gray-400', 'text-black');
+                if (cardBtn) cardBtn.classList.add('dark:text-white');
+                if (mobileViewIcon) mobileViewIcon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path>';
+                renderCardView();
+            } else {
+                tableContainer.classList.remove('hidden');
+                cardContainer.classList.add('hidden');
+                if (cardBtn) cardBtn.classList.replace('text-black', 'text-gray-400');
+                if (cardBtn) cardBtn.classList.remove('dark:text-white');
+                if (tableBtn) tableBtn.classList.replace('text-gray-400', 'text-black');
+                if (tableBtn) tableBtn.classList.add('dark:text-white');
+                if (mobileViewIcon) mobileViewIcon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path>';
+            }
+            showToast(viewMode === 'card' ? '已切换到卡片视图' : '已切换到表格视图', 'success');
+        }
+
+        function renderCardView() {
+            let filtered = accounts.filter(a => (a.name+a.issuer).toLowerCase().includes(searchTerm));
+            if (filterGroup) {
+                filtered = filtered.filter(a => (a.issuer || 'Unknown') === filterGroup);
+            }
+            filtered = sortAccounts(filtered);
+
+            const container = document.getElementById('card-container');
+            container.innerHTML = `<div class="card-grid">${filtered.map(a => `
+                <div class="card ${a.selected ? 'ring-2 ring-vercel-blue' : ''}" onclick="toggleSelect('${a.secret}')" oncontextmenu="showContextMenu(event, '${a.secret}')">
+                    <div class="flex items-start justify-between mb-3">
+                        <div class="flex items-center gap-3">
+                            ${renderIssuerIcon(a.issuer, 'lg')}
+                            <div>
+                                <p class="font-semibold text-gray-900 dark:text-gray-100">${highlightSearch(escape(a.issuer||'Unknown'))}</p>
+                                <p class="text-xs text-gray-500 dark:text-gray-400 font-mono">${highlightSearch(escape(a.name))}</p>
+                            </div>
+                        </div>
+                        <input type="checkbox" class="custom-checkbox border-gray-300" ${a.selected ? 'checked' : ''} onclick="event.stopPropagation(); toggleSelect('${a.secret}')" aria-label="选择">
+                    </div>
+                    <div class="flex items-center justify-between" onclick="event.stopPropagation()">
+                        <button onclick="copyCode('${a.secret}')" class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-vercel">
+                            <span id="card-code-${a.secret}" class="font-mono text-2xl text-vercel-blue font-bold tracking-wider">...</span>
+                            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                        </button>
+                        <div class="flex gap-1">
+                            <button onclick="showFullscreenTotp('${a.secret}')" class="p-2 text-gray-400 hover:text-vercel-blue transition-vercel rounded-md" title="全屏">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"></path></svg>
+                            </button>
+                            <button onclick="showEditModal('${a.secret}')" class="p-2 text-gray-400 hover:text-vercel-blue transition-vercel rounded-md" title="编辑">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                            </button>
+                            <button onclick="showQr('${a.secret}')" class="p-2 text-gray-400 hover:text-gray-900 dark:hover:text-white transition-vercel rounded-md" title="二维码">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4h2v-4zM6 6h2v2H6V6zm0 8h2v2H6v-2zm8-8h2v2h-2V6zm-8 4h2v2H6v-2zm4-4h2v2h-2V6z"></path></svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="mt-3 h-1 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+                        <div id="card-pie-${a.secret}" class="h-full bg-vercel-blue transition-all duration-1000" style="width: 0%"></div>
+                    </div>
+                </div>
+            `).join('')}</div>`;
+
+            updateCardTotpDisplay();
+        }
+
+        function updateCardTotpDisplay() {
+            if (viewMode !== 'card') return;
+            const epoch = Math.floor(Date.now()/1000);
+            const rem = 30 - (epoch % 30);
+            accounts.forEach(a => {
+                const el = document.getElementById(`card-code-${a.secret}`);
+                const pie = document.getElementById(`card-pie-${a.secret}`);
+                if(el && pie) {
+                    try {
+                        const t = new OTPAuth.TOTP({secret: OTPAuth.Secret.fromBase32(a.secret)});
+                        el.textContent = t.generate().replace(/(\d{3})(\d{3})/, '$1 $2');
+                        pie.style.width = (rem/30*100) + '%';
+                        pie.className = `h-full transition-all duration-1000 ${rem<5 ? 'bg-vercel-error' : 'bg-vercel-blue'}`;
+                    } catch(e){}
+                }
+            });
+        }
+
+        let lastTotpCodes = {}; // 用于检测验证码更新
+
+        function updateTotpDisplay() {
+            const epoch = Math.floor(Date.now()/1000);
+            const rem = 30 - (epoch % 30);
+            accounts.forEach(a => {
+                const el = document.getElementById(`code-${a.secret}`);
+                const pie = document.getElementById(`pie-${a.secret}`);
+                if(el && pie) {
+                    try {
+                        const t = new OTPAuth.TOTP({secret: OTPAuth.Secret.fromBase32(a.secret)});
+                        const code = t.generate();
+                        const formattedCode = code.replace(/(\d{3})(\d{3})/, '$1 $2');
+
+                        // 检测验证码是否更新，添加动画
+                        if (lastTotpCodes[a.secret] !== code) {
+                            lastTotpCodes[a.secret] = code;
+                            el.textContent = formattedCode;
+                            el.classList.add('code-updated');
+                            setTimeout(() => el.classList.remove('code-updated'), 300);
+                        }
+
+                        pie.style.transform = `scaleY(${rem/30})`;
+                        pie.className = `absolute inset-0 origin-bottom transition-vercel ${rem<5 ? 'bg-vercel-error' : 'bg-gray-300 dark:bg-gray-500'}`;
+                    } catch(e){}
+                }
+            });
+
+            // 同时更新卡片视图
+            updateCardTotpDisplay();
+        }
+
+        function showQr(secret) {
+            const acc = accounts.find(a=>a.secret===secret);
+            if(!acc) return;
+            const modal = document.getElementById('qr-modal');
+            document.getElementById('qr-modal-title').textContent = acc.issuer;
+            document.getElementById('qr-modal-subtitle').textContent = acc.name;
+            const uri = `otpauth://totp/${encodeURIComponent(acc.issuer)}:${encodeURIComponent(acc.name)}?secret=${acc.secret}&issuer=${encodeURIComponent(acc.issuer)}`;
+            QRCode.toCanvas(document.getElementById('qr-canvas'), uri, {width:200, margin:0}, ()=>{
+                modal.classList.remove('hidden');
+                setTimeout(()=>{
+                    modal.classList.add('opacity-100');
+                    document.getElementById('close-modal').focus();
+                }, 10);
+            });
+        }
+
+        function exportBitwarden() {
+            const selectedAccs = accounts.filter(a => a.selected);
+            if(selectedAccs.length === 0) return;
+            const data = { encrypted:false, folders:[], items: selectedAccs.map(a => ({ type:1, name:`${a.issuer}: ${a.name}`, login:{username:a.name, totp:a.secret} })) };
+            downloadFile(JSON.stringify(data, null, 2), 'bitwarden_export.json', 'application/json');
+            showToast(`已导出 ${selectedAccs.length} 个账户 (Bitwarden)`, 'success');
+        }
+
+        function export1Password() {
+            const selectedAccs = accounts.filter(a => a.selected);
+            if(selectedAccs.length === 0) return;
+            // 1Password CSV 格式: Title,Website,Username,Password,Notes,TOTP
+            const header = 'Title,Website,Username,Password,Notes,TOTP';
+            const rows = selectedAccs.map(a => {
+                const title = csvEscape(`${a.issuer}: ${a.name}`);
+                const totp = `otpauth://totp/${encodeURIComponent(a.issuer)}:${encodeURIComponent(a.name)}?secret=${a.secret}&issuer=${encodeURIComponent(a.issuer)}`;
+                return `${title},,${csvEscape(a.name)},,,"${totp}"`;
+            });
+            downloadFile([header, ...rows].join('\n'), '1password_export.csv', 'text/csv');
+            showToast(`已导出 ${selectedAccs.length} 个账户 (1Password)`, 'success');
+        }
+
+        function exportLastPass() {
+            const selectedAccs = accounts.filter(a => a.selected);
+            if(selectedAccs.length === 0) return;
+            // LastPass CSV 格式: url,username,password,totp,extra,name,grouping,fav
+            const header = 'url,username,password,totp,extra,name,grouping,fav';
+            const rows = selectedAccs.map(a => {
+                const name = csvEscape(`${a.issuer}: ${a.name}`);
+                return `http://sn,,,,${csvEscape(a.secret)},${name},,0`;
+            });
+            downloadFile([header, ...rows].join('\n'), 'lastpass_export.csv', 'text/csv');
+            showToast(`已导出 ${selectedAccs.length} 个账户 (LastPass)`, 'success');
+        }
+
+        function exportKeePass() {
+            const selectedAccs = accounts.filter(a => a.selected);
+            if(selectedAccs.length === 0) return;
+            // KeePass CSV 格式: Title,Username,Password,URL,Notes
+            // TOTP 存储在 Notes 中，格式为 otpauth:// URI
+            const header = 'Title,Username,Password,URL,Notes';
+            const rows = selectedAccs.map(a => {
+                const title = csvEscape(`${a.issuer}: ${a.name}`);
+                const totp = `otpauth://totp/${encodeURIComponent(a.issuer)}:${encodeURIComponent(a.name)}?secret=${a.secret}&issuer=${encodeURIComponent(a.issuer)}`;
+                return `${title},${csvEscape(a.name)},,,${csvEscape(totp)}`;
+            });
+            downloadFile([header, ...rows].join('\n'), 'keepass_export.csv', 'text/csv');
+            showToast(`已导出 ${selectedAccs.length} 个账户 (KeePass)`, 'success');
+        }
+
+        function csvEscape(str) {
+            if (!str) return '';
+            if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+                return '"' + str.replace(/"/g, '""') + '"';
+            }
+            return str;
+        }
+
+        function downloadFile(content, filename, mimeType) {
+            const blob = new Blob([content], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            link.click();
+            URL.revokeObjectURL(url);
+            // 关闭下拉菜单
+            const dropdown = document.getElementById('export-dropdown');
+            if (dropdown) {
+                dropdown.classList.remove('opacity-100');
+                dropdown.classList.add('-translate-y-2');
+                setTimeout(() => dropdown.classList.add('hidden'), 150);
+            }
+        }
+
+        function showToast(msg, type) {
+            const t = document.getElementById('toast');
+            const body = document.getElementById('toast-body');
+
+            if (type === 'loading') {
+                body.innerHTML = `
+                    <svg class="w-4 h-4 animate-spin text-white dark:text-black" width="16" height="16" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <p class="text-sm font-medium pr-2">${msg}</p>
+                `;
+            } else {
+                const icon = type === 'success'
+                    ? '<svg class="w-4 h-4 text-emerald-400" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>'
+                    : type === 'error'
+                    ? '<svg class="w-4 h-4 text-red-400" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>'
+                    : '';
+                body.innerHTML = `${icon}<p id="toast-msg" class="text-sm font-medium pr-2">${msg}</p>`;
+            }
+
+            t.classList.remove('translate-y-20', 'opacity-0');
+            if (type !== 'loading') {
+                setTimeout(() => t.classList.add('translate-y-20', 'opacity-0'), 3000);
+            }
+        }
+        function escape(s) { return s ? s.replace(/[&<>"']/g, m => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[m]) : ''; }
+        async function copyCode(secret) {
+            const el = document.getElementById(`code-${secret}`);
+            if (!el) return;
+            const code = el.textContent.replace(/\s/g, '');
+            try {
+                await navigator.clipboard.writeText(code);
+                showToast('验证码已复制到剪贴板', 'success');
+            } catch (e) {
+                // Fallback for older browsers
+                const textarea = document.createElement('textarea');
+                textarea.value = code;
+                textarea.style.position = 'fixed';
+                textarea.style.opacity = '0';
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+                showToast('验证码已复制到剪贴板', 'success');
+            }
+        }
+
+    // 自定义确认对话框
+        function showConfirmDialog(title, message, onConfirm) {
+            const modal = document.getElementById('confirm-modal');
+            const titleEl = document.getElementById('confirm-title');
+            const messageEl = document.getElementById('confirm-message');
+            const cancelBtn = document.getElementById('confirm-cancel');
+            const okBtn = document.getElementById('confirm-ok');
+
+            titleEl.textContent = title;
+            messageEl.textContent = message;
+
+            function closeConfirmModal() {
+                modal.classList.remove('opacity-100');
+                setTimeout(() => modal.classList.add('hidden'), 200);
+                document.removeEventListener('keydown', handleEscape);
+            }
+
+            function handleEscape(e) {
+                if (e.key === 'Escape') closeConfirmModal();
+            }
+
+            cancelBtn.onclick = closeConfirmModal;
+            okBtn.onclick = () => {
+                closeConfirmModal();
+                if (onConfirm) onConfirm();
+            };
+
+            modal.onclick = (e) => {
+                if (e.target === modal) closeConfirmModal();
+            };
+
+            document.addEventListener('keydown', handleEscape);
+
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                modal.classList.add('opacity-100');
+                okBtn.focus();
+            }, 10);
+        }
+
+        // 编辑账户模态框
+        function showEditModal(secret) {
+            const acc = accounts.find(a => a.secret === secret);
+            if (!acc) return;
+
+            const modal = document.getElementById('edit-modal');
+            const secretInput = document.getElementById('edit-secret');
+            const issuerInput = document.getElementById('edit-issuer');
+            const nameInput = document.getElementById('edit-name');
+            const cancelBtn = document.getElementById('edit-cancel');
+            const saveBtn = document.getElementById('edit-save');
+
+            // 填充当前值
+            secretInput.value = secret;
+            issuerInput.value = acc.issuer || '';
+            nameInput.value = acc.name || '';
+
+            function closeEditModal() {
+                modal.classList.remove('opacity-100');
+                setTimeout(() => modal.classList.add('hidden'), 200);
+                document.removeEventListener('keydown', handleEscape);
+            }
+
+            function handleEscape(e) {
+                if (e.key === 'Escape') closeEditModal();
+            }
+
+            function saveEdit() {
+                const newIssuer = issuerInput.value.trim();
+                const newName = nameInput.value.trim();
+
+                if (!newIssuer && !newName) {
+                    showToast('请至少填写一个字段', 'error');
+                    return;
+                }
+
+                const accToUpdate = accounts.find(a => a.secret === secretInput.value);
+                if (accToUpdate) {
+                    accToUpdate.issuer = newIssuer || 'Unknown';
+                    accToUpdate.name = newName;
+                    render();
+                    showToast('账户信息已更新', 'success');
+                }
+                closeEditModal();
+            }
+
+            cancelBtn.onclick = closeEditModal;
+            saveBtn.onclick = saveEdit;
+
+            // 支持 Enter 键保存
+            const handleEnter = (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    saveEdit();
+                }
+            };
+            issuerInput.onkeydown = handleEnter;
+            nameInput.onkeydown = handleEnter;
+
+            modal.onclick = (e) => {
+                if (e.target === modal) closeEditModal();
+            };
+
+            document.addEventListener('keydown', handleEscape);
+
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                modal.classList.add('opacity-100');
+                issuerInput.focus();
+                issuerInput.select();
+            }, 10);
+        }
+
+        // 排序功能
+        function toggleSort(field) {
+            if (sortField === field) {
+                // 同一字段：切换顺序或取消排序
+                if (sortOrder === 'asc') {
+                    sortOrder = 'desc';
+                } else {
+                    sortField = null;
+                    sortOrder = 'asc';
+                }
+            } else {
+                // 新字段：设置升序
+                sortField = field;
+                sortOrder = 'asc';
+            }
+            updateSortIcons();
+            render();
+        }
+
+        function updateSortIcons() {
+            // 重置所有图标
+            ['issuer', 'name'].forEach(field => {
+                const icon = document.getElementById(`sort-icon-${field}`);
+                if (icon) {
+                    if (sortField === field) {
+                        icon.classList.remove('opacity-0');
+                        icon.classList.add('opacity-100');
+                        // 更新图标方向
+                        if (sortOrder === 'asc') {
+                            icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"></path>';
+                        } else {
+                            icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>';
+                        }
+                    } else {
+                        icon.classList.add('opacity-0');
+                        icon.classList.remove('opacity-100');
+                        icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"></path>';
+                    }
+                }
+            });
+        }
+
+        function updateGroupFilter() {
+            const select = document.getElementById('group-filter');
+            if (!select) return;
+
+            // 获取所有唯一的发行方
+            const issuers = [...new Set(accounts.map(a => a.issuer || 'Unknown'))].sort((a, b) =>
+                a.toLowerCase().localeCompare(b.toLowerCase(), 'zh-CN')
+            );
+
+            // 保存当前选择
+            const currentValue = filterGroup;
+
+            // 更新选项
+            select.innerHTML = '<option value="">全部分组</option>' +
+                issuers.map(issuer => {
+                    const count = accounts.filter(a => (a.issuer || 'Unknown') === issuer).length;
+                    return `<option value="${escape(issuer)}" ${issuer === currentValue ? 'selected' : ''}>${escape(issuer)} (${count})</option>`;
+                }).join('');
+
+            // 如果当前选择的分组不存在了，重置
+            if (currentValue && !issuers.includes(currentValue)) {
+                filterGroup = '';
+            }
+        }
+
+        function sortAccounts(list) {
+            if (!sortField) return list;
+            return [...list].sort((a, b) => {
+                const aVal = (a[sortField] || '').toLowerCase();
+                const bVal = (b[sortField] || '').toLowerCase();
+                const cmp = aVal.localeCompare(bVal, 'zh-CN');
+                return sortOrder === 'asc' ? cmp : -cmp;
+            });
+        }
+
+        // PWA Service Worker 注册
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(registration => {
+                        console.log('[PWA] Service Worker 注册成功:', registration.scope);
+
+                        // 检查更新
+                        registration.addEventListener('updatefound', () => {
+                            const newWorker = registration.installing;
+                            newWorker.addEventListener('statechange', () => {
+                                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                    // 有新版本可用
+                                    showToast('有新版本可用，刷新页面即可更新', 'info');
+                                }
+                            });
+                        });
+                    })
+                    .catch(error => {
+                        console.log('[PWA] Service Worker 注册失败:', error);
+                    });
+            });
+        }
+    </script>
+</body>
+</html>
